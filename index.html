@@ -1,77 +1,68 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NEBULA PANEL</title>
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <title>Nebula Control</title>
     <style>
-        body { background-color: #0d1117; color: #e6edf3; font-family: sans-serif; padding: 15px; margin: 0; }
-        .section { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 15px; margin-bottom: 15px; }
-        .main-btn { background: #0d1117; border: 1px solid #30363d; color: white; width: 100%; padding: 12px; border-radius: 10px; margin-bottom: 8px; text-align: left; cursor: pointer; display: flex; align-items: center; }
-        input { background: #0d1117; border: 1px solid #30363d; color: white; padding: 12px; border-radius: 8px; width: calc(100% - 26px); margin-bottom: 10px; }
-        .save-btn { background: #238636; color: white; border: none; padding: 12px; border-radius: 8px; width: 100%; font-weight: bold; cursor: pointer; }
-        #auth-screen, #add-account-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0d1117; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .hidden { display: none !important; }
-        .icon { margin-right: 10px; }
+        body { background: #0b0e14; color: #e1e1e1; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; }
+        .card { background: #1a1f29; padding: 25px; border-radius: 15px; border: 1px solid #30363d; width: 90%; max-width: 400px; margin-top: 50px; box-shadow: 0 0 20px rgba(0,255,255,0.1); }
+        h2 { color: #00d2ff; text-align: center; }
+        input, button, textarea { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; box-sizing: border-box; }
+        input { background: #0d1117; color: white; border: 1px solid #30363d; }
+        button { background: linear-gradient(90deg, #00d2ff, #3a7bd5); color: white; font-weight: bold; cursor: pointer; }
+        .chat-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #30363d; }
+        #chatList { max-height: 300px; overflow-y: auto; margin: 15px 0; }
     </style>
 </head>
 <body>
-
-    <div id="auth-screen">
-        <h2 style="color: #58a6ff;">NEBULA</h2>
-        <input type="password" id="user-pass" placeholder="Пароль">
-        <button class="save-btn" style="width: 80%;" onclick="login()">ВОЙТИ</button>
+    <div class="card" id="loginCard">
+        <h2>ORION TEAM: NEBULA</h2>
+        <input type="text" id="login" placeholder="Логин">
+        <input type="password" id="pass" placeholder="Пароль">
+        <button onclick="login()">ВОЙТИ</button>
     </div>
 
-    <div id="add-account-screen" class="hidden">
-        <div style="width: 85%;">
-            <button style="background: none; border: none; color: #58a6ff; margin-bottom: 20px; cursor: pointer;" onclick="closeAdd()">← НАЗАД</button>
-            <h3>Новый аккаунт</h3>
-            <input type="text" id="phone" placeholder="Телефон (+7...)">
-            <input type="text" id="api_id" placeholder="API ID">
-            <input type="text" id="api_hash" placeholder="API HASH">
-            <button class="save-btn" onclick="sendData()">ОТПРАВИТЬ КОД</button>
-        </div>
-    </div>
-
-    <div id="main-menu">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-            <div>
-                <div style="font-weight: bold; font-size: 20px;">■ NEBULA</div>
-                <div style="font-size: 12px; color: #8b949e;">👤 Король писбеов</div>
-            </div>
-            <button onclick="location.reload()" style="background: #3d2b2b; color: #ff7b72; border: none; padding: 5px 10px; border-radius: 5px;">ВЫХОД</button>
-        </div>
-
-        <div class="section">
-            <div style="color: #8b949e; font-size: 11px; margin-bottom: 10px; text-transform: uppercase;">🗂 АККАУНТЫ</div>
-            <button class="main-btn" onclick="openAdd()"><span class="icon">➕</span> ДОБАВИТЬ</button>
-            <button class="main-btn"><span class="icon">📋</span> МОИ АККАУНТЫ</button>
-        </div>
+    <div class="card" id="mainCard" style="display:none;">
+        <h2>Управление</h2>
+        <div id="chatList">Загрузка чатов...</div>
+        <textarea id="msg" placeholder="Текст (разные варианты через | )"></textarea>
+        <input type="number" id="delay" value="30" placeholder="Задержка (сек)">
+        <button onclick="startMailing()">ЗАПУСТИТЬ РАССЫЛКУ</button>
     </div>
 
     <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
+        const API = "https://ТВОЙ-URL-НА-RENDER.com"; // ЗАМЕНИТЬ ПОСЛЕ ДЕПЛОЯ
+        let userData = {};
 
-        function login() {
-            if(document.getElementById('user-pass').value === "1234") {
-                document.getElementById('auth-screen').classList.add('hidden');
-            } else { alert("Неверный пароль!"); }
+        async function login() {
+            userData = { login: document.getElementById('login').value, password: document.getElementById('pass').value };
+            const res = await fetch(`${API}/get_chats`, { method: 'POST', body: JSON.stringify(userData) });
+            const data = await res.json();
+            if(data.status === "ok") {
+                document.getElementById('loginCard').style.display = 'none';
+                document.getElementById('mainCard').style.display = 'block';
+                renderChats(data.chats);
+            } else { alert(data.message); }
         }
 
-        function openAdd() { document.getElementById('add-account-screen').classList.remove('hidden'); }
-        function closeAdd() { document.getElementById('add-account-screen').classList.add('hidden'); }
+        function renderChats(chats) {
+            const list = document.getElementById('chatList');
+            list.innerHTML = chats.map(c => `
+                <div class="chat-item">
+                    <input type="checkbox" value="${c.id}" class="chat-check" checked> ${c.title}
+                </div>
+            `).join('');
+        }
 
-        function sendData() {
-            let p = document.getElementById('phone').value;
-            let i = document.getElementById('api_id').value;
-            let h = document.getElementById('api_hash').value;
+        async function startMailing() {
+            const selected = Array.from(document.querySelectorAll('.chat-check:checked')).map(el => el.value);
+            const texts = document.getElementById('msg').value.split('|');
+            const delay = document.getElementById('delay').value;
             
-            if(!p || !i || !h) return alert("Заполни все поля!");
-
-            tg.sendData(JSON.stringify({phone: p, api_id: i, api_hash: h}));
+            await fetch(`${API}/start_mailing`, {
+                method: 'POST',
+                body: JSON.stringify({ ...userData, chat_ids: selected, texts, delay })
+            });
+            alert("Рассылка запущена!");
         }
     </script>
 </body>
