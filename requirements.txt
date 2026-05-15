@@ -1,8 +1,7 @@
 aiohttp
 aiohttp_cors
-pyrogram
+pyrogram==2.0.106
 tgcrypto
 aiosqlite
-bcrypt
-python-dotenv
+bcrypt==4.1.2
 PySocks
