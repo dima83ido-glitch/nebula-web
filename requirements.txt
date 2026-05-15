@@ -2,3 +2,4 @@ aiogram
 pyrogram
 tgcrypto
 aiohttp
+aiohttp_cors
