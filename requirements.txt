@@ -1,5 +1,8 @@
-aiogram
-pyrogram
-tgcrypto
 aiohttp
 aiohttp_cors
+pyrogram
+tgcrypto
+aiosqlite
+bcrypt
+python-dotenv
+PySocks
