@@ -1,98 +1,79 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ORION NEBULA PANEL</title>
+    <title>ORION NEBULA</title>
     <style>
-        :root { --neon: #00f2ff; --bg: #0d1117; --card: #161b22; }
-        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; padding: 20px; }
-        .screen { display: none; max-width: 500px; margin: auto; }
+        body { background: #0d1117; color: white; font-family: sans-serif; text-align: center; }
+        .page { display: none; padding: 20px; }
         .active { display: block; }
-        .btn { background: var(--neon); color: black; border: none; padding: 12px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        .btn-back { background: #30363d; color: white; margin-bottom: 20px; width: auto; padding: 5px 15px; }
-        .card { background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
-        input, textarea { width: 100%; padding: 10px; margin: 5px 0; background: #010409; border: 1px solid #30363d; color: white; box-sizing: border-box; }
+        .card { background: #161b22; border: 1px solid #30363d; padding: 15px; margin: 10px; border-radius: 8px; }
+        input { width: 80%; padding: 10px; margin: 5px; background: #010409; color: white; border: 1px solid #30363d; }
+        button { background: #238636; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
+        .back-btn { background: #30363d; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
-    <div id="login_screen" class="screen active">
-        <h2>NEBULA LOGIN</h2>
-        <input type="text" id="user_l" placeholder="Логин">
-        <input type="password" id="user_p" placeholder="Пароль">
-        <button class="btn" onclick="app.login()">ВОЙТИ</button>
+    <div id="loginPage" class="page active">
+        <h2>Nebula Login</h2>
+        <input type="text" id="l" placeholder="Логин">
+        <input type="password" id="p" placeholder="Пароль">
+        <button onclick="nav('menu')">Войти</button>
     </div>
 
-    <div id="menu_screen" class="screen">
-        <h2>ORION TEAM</h2>
-        <button class="btn" onclick="app.showScreen('accounts_screen')">📱 МОИ АККАУНТЫ</button>
-        <button class="btn" onclick="app.showScreen('add_acc_screen')">➕ ДОБАВИТЬ АККАУНТ</button>
-        <button class="btn" onclick="app.showScreen('create_mail_screen')">🚀 СОЗДАТЬ РАССЫЛКУ</button>
+    <div id="menu" class="page">
+        <h2>Управление ORION</h2>
+        <button onclick="nav('accs')">📱 Мои Аккаунты</button><br><br>
+        <button onclick="nav('add')">➕ Добавить Аккаунт</button>
     </div>
 
-    <div id="accounts_screen" class="screen">
-        <button class="btn btn-back" onclick="app.showScreen('menu_screen')">← Назад</button>
-        <h3>Ваши сессии</h3>
-        <div id="acc_list">Загрузка...</div>
+    <div id="accs" class="page">
+        <button class="back-btn" onclick="nav('menu')">← Назад</button>
+        <div id="list">Загрузка...</div>
     </div>
 
-    <div id="add_acc_screen" class="screen">
-        <button class="btn btn-back" onclick="app.showScreen('menu_screen')">← Назад</button>
-        <h3>Новый аккаунт</h3>
-        <input type="text" id="api_id" placeholder="API ID">
-        <input type="text" id="api_hash" placeholder="API Hash">
-        <input type="text" id="phone" placeholder="+380...">
-        <button class="btn" id="btn_send_code" onclick="app.sendCode()">ПОЛУЧИТЬ КОД</button>
-        
-        <div id="otp_div" style="display:none">
-            <input type="text" id="otp_code" placeholder="Код подтверждения">
-            <button class="btn" onclick="app.confirmCode()">ПОДТВЕРДИТЬ</button>
-        </div>
+    <div id="add" class="page">
+        <button class="back-btn" onclick="nav('menu')">← Назад</button>
+        <input id="api_id" placeholder="API ID">
+        <input id="api_hash" placeholder="API Hash">
+        <input id="phone" placeholder="+380...">
+        <button onclick="step1()">Получить код</button>
+        <div id="otp" style="display:none"><input id="code" placeholder="Код"><button onclick="step2()">Ок</button></div>
     </div>
 
     <script>
-        const API = "https://ТВОЙ-RENDER.onrender.com";
-        const app = {
-            user: null,
-            showScreen(id) {
-                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-                document.getElementById(id).classList.add('active');
-                if(id === 'accounts_screen') this.loadAccounts();
-            },
-            login() {
-                this.user = document.getElementById('user_l').value;
-                this.showScreen('menu_screen');
-            },
-            async sendCode() {
-                const phone = document.getElementById('phone').value;
-                const res = await fetch(`${API}/auth/step1`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        phone, login: this.user,
-                        api_id: document.getElementById('api_id').value,
-                        api_hash: document.getElementById('api_hash').value
-                    })
-                });
-                const d = await res.json();
-                if(d.status === "code_sent") document.getElementById('otp_div').style.display = 'block';
-                else alert(d.message);
-            },
-            async confirmCode() {
-                const res = await fetch(`${API}/auth/step2`, {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        phone: document.getElementById('phone').value,
-                        code: document.getElementById('otp_code').value
-                    })
-                });
-                if((await res.json()).status === "success") { alert("Готово!"); this.showScreen('menu_screen'); }
-            },
-            async loadAccounts() {
-                const res = await fetch(`${API}/get_my_accounts`, {method:'POST', body: JSON.stringify({login: this.user})});
-                const d = await res.json();
-                document.getElementById('acc_list').innerHTML = d.accounts.map(a => `<div class="card">${a} <button style="float:right">Удалить</button></div>`).join('');
-            }
+        const URL = "https://ТВОЙ-RENDER.onrender.com";
+        let user = "";
+
+        function nav(id) {
+            if(id === 'menu') user = document.getElementById('l').value;
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+            if(id === 'accs') load();
+        }
+
+        async function load() {
+            const r = await fetch(URL+'/list', {method:'POST', body: JSON.stringify({login:user})});
+            const d = await r.json();
+            document.getElementById('list').innerHTML = d.sessions.map(s => `<div class="card">${s} <button onclick="del('${s}')" style="background:red">Удалить</button></div>`).join('');
+        }
+
+        async function step1() {
+            const body = { login: user, phone: document.getElementById('phone').value, api_id: document.getElementById('api_id').value, api_hash: document.getElementById('api_hash').value };
+            const r = await fetch(URL+'/auth1', {method:'POST', body: JSON.stringify(body)});
+            if((await r.json()).status === "code_sent") document.getElementById('otp').style.display = 'block';
+        }
+
+        async function step2() {
+            const body = { phone: document.getElementById('phone').value, code: document.getElementById('code').value };
+            await fetch(URL+'/auth2', {method:'POST', body: JSON.stringify(body)});
+            nav('accs');
+        }
+
+        async function del(p) {
+            await fetch(URL+'/delete', {method:'POST', body: JSON.stringify({login:user, phone:p})});
+            load();
         }
     </script>
 </body>
