@@ -1,70 +1,83 @@
 import asyncio
-from aiogram import Bot, Dispatcher
-from pyrogram import Client
-import aiohttp_cors
+import os
+import json
 from aiohttp import web
+import aiohttp_cors
+from pyrogram import Client
+from pyrogram.errors import FloodWait
 
-# --- ТВОИ ДАННЫЕ ---
-API_TOKEN = 'ТВОЙ_ТОКЕН_БОТА'
-USERS_DB = {
-    "dmitry": {"pass": "777", "session": "my_acc"},
-}
+# Папки для данных
+os.makedirs("sessions", exist_ok=True)
+os.makedirs("data", exist_ok=True)
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+# База пользователей WebApp
+USERS_DB = {"dmitry": "777", "admin": "orion123"}
+active_auths = {}
 
-# --- ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ЧАТОВ ---
-async def get_user_chats(session_name):
-    app = Client(f"sessions/{session_name}")
-    await app.start()
-    chats = []
-    async for dialog in app.get_dialogs():
-        if dialog.chat.type in ["group", "supergroup"]:
-            chats.append({"id": dialog.chat.id, "title": dialog.chat.title})
-    await app.stop()
-    return chats
+# --- УПРАВЛЕНИЕ ДАННЫМИ ---
+def get_user_data(login):
+    path = f"data/{login}.json"
+    if os.path.exists(path):
+        with open(path, "r") as f: return json.load(f)
+    return {"sessions": []}
 
-# --- НАСТРОЙКА WEB-СЕРВЕРА ---
-async def handle_get_chats(request):
-    data = await request.json()
-    login = data.get("login")
-    password = data.get("password")
-    
-    user = USERS_DB.get(login)
-    if user and user["pass"] == password:
-        try:
-            chats = await get_user_chats(user["session"])
-            return web.json_response({"status": "ok", "chats": chats})
-        except Exception as e:
-            return web.json_response({"status": "error", "message": str(e)})
-    return web.json_response({"status": "error", "message": "Wrong login/pass"})
+def save_user_data(login, data):
+    with open(f"data/{login}.json", "w") as f: json.dump(data, f)
 
-app = web.Application()
-cors = aiohttp_cors.setup(app, defaults={
-    "*": aiohttp_cors.ResourceOptions(allow_credentials=True, expose_headers="*", allow_headers="*")
-})
-resource = app.router.add_resource("/get_chats")
-cors.add(resource.add_route("POST", handle_get_chats))
-
-# --- ГЛАВНЫЙ ЗАПУСК ---
-async def main():
-    # Запускаем бота и веб-сервер одновременно
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', 8080)
-    
-    print("🚀 Сервер запущен на порту 8080")
-    await site.start()
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
-    # Это исправит твою ошибку RuntimeError: No current event loop
+# --- ЭНДПОИНТЫ ---
+async def auth_step1(request):
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        pass
-    except RuntimeError:
-        # Если asyncio.run не сработал, используем принудительный цикл
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(main())
+        data = await request.json()
+        phone, api_id, api_hash = data['phone'], data['api_id'], data['api_hash']
+        client = Client(f"sessions/{phone}", api_id=int(api_id), api_hash=api_hash)
+        await client.connect()
+        sent_code = await client.send_code(phone)
+        active_auths[phone] = {"client": client, "hash": sent_code.phone_code_hash, "user": data['login']}
+        return web.json_response({"status": "code_sent"})
+    except Exception as e: return web.json_response({"status": "error", "message": str(e)})
+
+async def auth_step2(request):
+    try:
+        data = await request.json()
+        phone, code = data['phone'], data['code']
+        auth = active_auths.get(phone)
+        await auth["client"].sign_in(phone, auth["hash"], code)
+        await auth["client"].disconnect()
+        
+        user_info = get_user_data(auth["user"])
+        if phone not in user_info["sessions"]:
+            user_info["sessions"].append(phone)
+            save_user_data(auth["user"], user_info)
+        return web.json_response({"status": "success"})
+    except Exception as e: return web.json_response({"status": "error", "message": str(e)})
+
+async def list_accounts(request):
+    data = await request.json()
+    return web.json_response(get_user_data(data['login']))
+
+async def delete_account(request):
+    data = await request.json()
+    info = get_user_data(data['login'])
+    if data['phone'] in info['sessions']:
+        info['sessions'].remove(data['phone'])
+        save_user_data(data['login'], info)
+        path = f"sessions/{data['phone']}.session"
+        if os.path.exists(path): os.remove(path)
+    return web.json_response({"status": "ok"})
+
+# --- ЗАПУСК ---
+async def make_app():
+    app = web.Application()
+    cors = aiohttp_cors.setup(app, defaults={"*": aiohttp_cors.ResourceOptions(allow_headers="*", allow_methods="*")})
+    
+    app.router.add_post("/auth1", auth_step1)
+    app.router.add_post("/auth2", auth_step2)
+    app.router.add_post("/list", list_accounts)
+    app.router.add_post("/delete", delete_account)
+    
+    for route in list(app.router.routes()): cors.add(route)
+    return app
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    web.run_app(make_app(), host="0.0.0.0", port=port)
