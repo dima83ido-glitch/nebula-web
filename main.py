@@ -95,5 +95,12 @@ async def main():
     print(f"🚀 Сервер запущен на порту {port}")
     await asyncio.gather(site.start(), dp.start_polling(bot))
 
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == '__main__':
+    import asyncio
+    # Создаем новый цикл событий, чтобы избежать ошибки из логов
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        pass
