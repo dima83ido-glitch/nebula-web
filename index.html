@@ -1,80 +1,412 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>ORION NEBULA</title>
-    <style>
-        body { background: #0d1117; color: white; font-family: sans-serif; text-align: center; }
-        .page { display: none; padding: 20px; }
-        .active { display: block; }
-        .card { background: #161b22; border: 1px solid #30363d; padding: 15px; margin: 10px; border-radius: 8px; }
-        input { width: 80%; padding: 10px; margin: 5px; background: #010409; color: white; border: 1px solid #30363d; }
-        button { background: #238636; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; }
-        .back-btn { background: #30363d; margin-bottom: 20px; }
-    </style>
+<meta charset="UTF-8">
+<title>Nebula</title>
+
+<style>
+
+body{
+background:#070b14;
+font-family:Arial;
+color:white;
+margin:0;
+padding:0;
+}
+
+.topbar{
+display:flex;
+justify-content:space-between;
+padding:20px;
+background:#0f1725;
+}
+
+.container{
+padding:20px;
+}
+
+.card{
+background:#101827;
+padding:20px;
+border-radius:15px;
+margin-bottom:15px;
+border:1px solid #1e293b;
+}
+
+input{
+width:100%;
+padding:12px;
+margin-top:10px;
+background:#0b1120;
+border:1px solid #334155;
+color:white;
+border-radius:10px;
+}
+
+button{
+margin-top:10px;
+padding:12px;
+width:100%;
+border:none;
+background:#2563eb;
+color:white;
+border-radius:10px;
+cursor:pointer;
+}
+
+.page{
+display:none;
+}
+
+.active{
+display:block;
+}
+
+.acc{
+display:flex;
+justify-content:space-between;
+align-items:center;
+}
+
+</style>
 </head>
 <body>
 
-    <div id="loginPage" class="page active">
-        <h2>Nebula Login</h2>
-        <input type="text" id="l" placeholder="Логин">
-        <input type="password" id="p" placeholder="Пароль">
-        <button onclick="nav('menu')">Войти</button>
-    </div>
+<div id="loginPage" class="page active">
 
-    <div id="menu" class="page">
-        <h2>Управление ORION</h2>
-        <button onclick="nav('accs')">📱 Мои Аккаунты</button><br><br>
-        <button onclick="nav('add')">➕ Добавить Аккаунт</button>
-    </div>
+<div class="container">
 
-    <div id="accs" class="page">
-        <button class="back-btn" onclick="nav('menu')">← Назад</button>
-        <div id="list">Загрузка...</div>
-    </div>
+<div class="card">
 
-    <div id="add" class="page">
-        <button class="back-btn" onclick="nav('menu')">← Назад</button>
-        <input id="api_id" placeholder="API ID">
-        <input id="api_hash" placeholder="API Hash">
-        <input id="phone" placeholder="+380...">
-        <button onclick="step1()">Получить код</button>
-        <div id="otp" style="display:none"><input id="code" placeholder="Код"><button onclick="step2()">Ок</button></div>
-    </div>
+<h2>NEBULA LOGIN</h2>
 
-    <script>
-        const URL = "https://ТВОЙ-RENDER.onrender.com";
-        let user = "";
+<input id="loginUsername" placeholder="Username">
+<input id="loginPassword" type="password" placeholder="Password">
 
-        function nav(id) {
-            if(id === 'menu') user = document.getElementById('l').value;
-            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-            document.getElementById(id).classList.add('active');
-            if(id === 'accs') load();
-        }
+<label>
+<input type="checkbox" id="remember">
+Remember me
+</label>
 
-        async function load() {
-            const r = await fetch(URL+'/list', {method:'POST', body: JSON.stringify({login:user})});
-            const d = await r.json();
-            document.getElementById('list').innerHTML = d.sessions.map(s => `<div class="card">${s} <button onclick="del('${s}')" style="background:red">Удалить</button></div>`).join('');
-        }
+<button onclick="login()">Войти</button>
 
-        async function step1() {
-            const body = { login: user, phone: document.getElementById('phone').value, api_id: document.getElementById('api_id').value, api_hash: document.getElementById('api_hash').value };
-            const r = await fetch(URL+'/auth1', {method:'POST', body: JSON.stringify(body)});
-            if((await r.json()).status === "code_sent") document.getElementById('otp').style.display = 'block';
-        }
+</div>
 
-        async function step2() {
-            const body = { phone: document.getElementById('phone').value, code: document.getElementById('code').value };
-            await fetch(URL+'/auth2', {method:'POST', body: JSON.stringify(body)});
-            nav('accs');
-        }
+</div>
 
-        async function del(p) {
-            await fetch(URL+'/delete', {method:'POST', body: JSON.stringify({login:user, phone:p})});
-            load();
-        }
-    </script>
+</div>
+
+<div id="dashboard" class="page">
+
+<div class="topbar">
+<div id="nickname"></div>
+<button onclick="logout()">Выход</button>
+</div>
+
+<div class="container">
+
+<div class="card">
+<button onclick="openPage('addAccount')">Добавить аккаунт</button>
+</div>
+
+<div class="card">
+<button onclick="loadAccounts()">Мои аккаунты</button>
+</div>
+
+</div>
+
+</div>
+
+<div id="addAccount" class="page">
+
+<div class="container">
+
+<button onclick="openPage('dashboard')">Назад</button>
+
+<div class="card">
+
+<input id="phone" placeholder="+380...">
+<input id="api_id" placeholder="API ID">
+<input id="api_hash" placeholder="API HASH">
+<input id="proxy" placeholder="SOCKS5 Proxy">
+
+<label>
+<input type="checkbox" id="use_proxy">
+Использовать proxy
+</label>
+
+<button onclick="sendCode()">Отправить код</button>
+
+</div>
+
+<div id="codeBlock" class="card" style="display:none">
+
+<input id="code" placeholder="Код Telegram">
+
+<button onclick="verifyCode()">Подтвердить</button>
+
+</div>
+
+<div id="passwordBlock" class="card" style="display:none">
+
+<input id="password2fa" placeholder="2FA Password">
+
+<button onclick="verifyPassword()">Войти</button>
+
+</div>
+
+</div>
+
+</div>
+
+<div id="accountsPage" class="page">
+
+<div class="container">
+
+<button onclick="openPage('dashboard')">Назад</button>
+
+<div id="accountsList"></div>
+
+</div>
+
+</div>
+
+<script>
+
+const API = "https://YOUR-RENDER.onrender.com"
+
+let currentUser = ""
+let auth_id = ""
+
+function openPage(id){
+
+document.querySelectorAll(".page").forEach(x=>{
+x.classList.remove("active")
+})
+
+document.getElementById(id).classList.add("active")
+
+}
+
+async function login(){
+
+const r = await fetch(API+"/login",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+username:document.getElementById("loginUsername").value,
+password:document.getElementById("loginPassword").value,
+remember:document.getElementById("remember").checked
+})
+})
+
+const d = await r.json()
+
+if(d.status){
+
+currentUser=document.getElementById("loginUsername").value
+
+localStorage.setItem("token",d.token)
+localStorage.setItem("username",currentUser)
+
+document.getElementById("nickname").innerText=currentUser
+
+openPage("dashboard")
+
+}else{
+alert(d.message)
+}
+
+}
+
+function logout(){
+
+localStorage.clear()
+
+location.reload()
+
+}
+
+async function sendCode(){
+
+const r = await fetch(API+"/send_code",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+username:currentUser,
+phone:document.getElementById("phone").value,
+api_id:document.getElementById("api_id").value,
+api_hash:document.getElementById("api_hash").value,
+proxy:document.getElementById("proxy").value,
+use_proxy:document.getElementById("use_proxy").checked
+
+})
+
+})
+
+const d = await r.json()
+
+if(d.status){
+
+auth_id=d.auth_id
+
+document.getElementById("codeBlock").style.display="block"
+
+}else{
+alert(d.message)
+}
+
+}
+
+async function verifyCode(){
+
+const r = await fetch(API+"/verify_code",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+auth_id:auth_id,
+code:document.getElementById("code").value
+
+})
+
+})
+
+const d = await r.json()
+
+if(d.need_password){
+
+document.getElementById("passwordBlock").style.display="block"
+
+return
+
+}
+
+if(d.status){
+
+alert("Аккаунт подключен")
+
+openPage("dashboard")
+
+}else{
+alert(d.message)
+}
+
+}
+
+async function verifyPassword(){
+
+const r = await fetch(API+"/verify_password",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+
+auth_id:auth_id,
+password:document.getElementById("password2fa").value
+
+})
+
+})
+
+const d = await r.json()
+
+if(d.status){
+
+alert("2FA успешно подтвержден")
+
+openPage("dashboard")
+
+}else{
+alert(d.message)
+}
+
+}
+
+async function loadAccounts(){
+
+openPage("accountsPage")
+
+const r = await fetch(API+"/accounts",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+username:currentUser
+})
+
+})
+
+const d = await r.json()
+
+let html=""
+
+d.accounts.forEach(acc=>{
+
+html+=`
+<div class="card acc">
+
+<div>
+${acc.phone}
+</div>
+
+<div>
+<button onclick="deleteAccount(${acc.id})">
+Удалить
+</button>
+</div>
+
+</div>
+`
+
+})
+
+document.getElementById("accountsList").innerHTML=html
+
+}
+
+async function deleteAccount(id){
+
+await fetch(API+"/delete_account",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify({
+account_id:id
+})
+
+})
+
+loadAccounts()
+
+}
+
+</script>
+
 </body>
 </html>
