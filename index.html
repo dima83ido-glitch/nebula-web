@@ -1,68 +1,98 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-    <title>Nebula Control</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ORION NEBULA PANEL</title>
     <style>
-        body { background: #0b0e14; color: #e1e1e1; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; }
-        .card { background: #1a1f29; padding: 25px; border-radius: 15px; border: 1px solid #30363d; width: 90%; max-width: 400px; margin-top: 50px; box-shadow: 0 0 20px rgba(0,255,255,0.1); }
-        h2 { color: #00d2ff; text-align: center; }
-        input, button, textarea { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: none; box-sizing: border-box; }
-        input { background: #0d1117; color: white; border: 1px solid #30363d; }
-        button { background: linear-gradient(90deg, #00d2ff, #3a7bd5); color: white; font-weight: bold; cursor: pointer; }
-        .chat-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #30363d; }
-        #chatList { max-height: 300px; overflow-y: auto; margin: 15px 0; }
+        :root { --neon: #00f2ff; --bg: #0d1117; --card: #161b22; }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; padding: 20px; }
+        .screen { display: none; max-width: 500px; margin: auto; }
+        .active { display: block; }
+        .btn { background: var(--neon); color: black; border: none; padding: 12px; width: 100%; border-radius: 5px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        .btn-back { background: #30363d; color: white; margin-bottom: 20px; width: auto; padding: 5px 15px; }
+        .card { background: var(--card); padding: 15px; border-radius: 10px; border: 1px solid #30363d; margin-bottom: 10px; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0; background: #010409; border: 1px solid #30363d; color: white; box-sizing: border-box; }
     </style>
 </head>
 <body>
-    <div class="card" id="loginCard">
-        <h2>ORION TEAM: NEBULA</h2>
-        <input type="text" id="login" placeholder="Логин">
-        <input type="password" id="pass" placeholder="Пароль">
-        <button onclick="login()">ВОЙТИ</button>
+
+    <div id="login_screen" class="screen active">
+        <h2>NEBULA LOGIN</h2>
+        <input type="text" id="user_l" placeholder="Логин">
+        <input type="password" id="user_p" placeholder="Пароль">
+        <button class="btn" onclick="app.login()">ВОЙТИ</button>
     </div>
 
-    <div class="card" id="mainCard" style="display:none;">
-        <h2>Управление</h2>
-        <div id="chatList">Загрузка чатов...</div>
-        <textarea id="msg" placeholder="Текст (разные варианты через | )"></textarea>
-        <input type="number" id="delay" value="30" placeholder="Задержка (сек)">
-        <button onclick="startMailing()">ЗАПУСТИТЬ РАССЫЛКУ</button>
+    <div id="menu_screen" class="screen">
+        <h2>ORION TEAM</h2>
+        <button class="btn" onclick="app.showScreen('accounts_screen')">📱 МОИ АККАУНТЫ</button>
+        <button class="btn" onclick="app.showScreen('add_acc_screen')">➕ ДОБАВИТЬ АККАУНТ</button>
+        <button class="btn" onclick="app.showScreen('create_mail_screen')">🚀 СОЗДАТЬ РАССЫЛКУ</button>
+    </div>
+
+    <div id="accounts_screen" class="screen">
+        <button class="btn btn-back" onclick="app.showScreen('menu_screen')">← Назад</button>
+        <h3>Ваши сессии</h3>
+        <div id="acc_list">Загрузка...</div>
+    </div>
+
+    <div id="add_acc_screen" class="screen">
+        <button class="btn btn-back" onclick="app.showScreen('menu_screen')">← Назад</button>
+        <h3>Новый аккаунт</h3>
+        <input type="text" id="api_id" placeholder="API ID">
+        <input type="text" id="api_hash" placeholder="API Hash">
+        <input type="text" id="phone" placeholder="+380...">
+        <button class="btn" id="btn_send_code" onclick="app.sendCode()">ПОЛУЧИТЬ КОД</button>
+        
+        <div id="otp_div" style="display:none">
+            <input type="text" id="otp_code" placeholder="Код подтверждения">
+            <button class="btn" onclick="app.confirmCode()">ПОДТВЕРДИТЬ</button>
+        </div>
     </div>
 
     <script>
-        const API = "https://ТВОЙ-URL-НА-RENDER.com"; // ЗАМЕНИТЬ ПОСЛЕ ДЕПЛОЯ
-        let userData = {};
-
-        async function login() {
-            userData = { login: document.getElementById('login').value, password: document.getElementById('pass').value };
-            const res = await fetch(`${API}/get_chats`, { method: 'POST', body: JSON.stringify(userData) });
-            const data = await res.json();
-            if(data.status === "ok") {
-                document.getElementById('loginCard').style.display = 'none';
-                document.getElementById('mainCard').style.display = 'block';
-                renderChats(data.chats);
-            } else { alert(data.message); }
-        }
-
-        function renderChats(chats) {
-            const list = document.getElementById('chatList');
-            list.innerHTML = chats.map(c => `
-                <div class="chat-item">
-                    <input type="checkbox" value="${c.id}" class="chat-check" checked> ${c.title}
-                </div>
-            `).join('');
-        }
-
-        async function startMailing() {
-            const selected = Array.from(document.querySelectorAll('.chat-check:checked')).map(el => el.value);
-            const texts = document.getElementById('msg').value.split('|');
-            const delay = document.getElementById('delay').value;
-            
-            await fetch(`${API}/start_mailing`, {
-                method: 'POST',
-                body: JSON.stringify({ ...userData, chat_ids: selected, texts, delay })
-            });
-            alert("Рассылка запущена!");
+        const API = "https://ТВОЙ-RENDER.onrender.com";
+        const app = {
+            user: null,
+            showScreen(id) {
+                document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+                document.getElementById(id).classList.add('active');
+                if(id === 'accounts_screen') this.loadAccounts();
+            },
+            login() {
+                this.user = document.getElementById('user_l').value;
+                this.showScreen('menu_screen');
+            },
+            async sendCode() {
+                const phone = document.getElementById('phone').value;
+                const res = await fetch(`${API}/auth/step1`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        phone, login: this.user,
+                        api_id: document.getElementById('api_id').value,
+                        api_hash: document.getElementById('api_hash').value
+                    })
+                });
+                const d = await res.json();
+                if(d.status === "code_sent") document.getElementById('otp_div').style.display = 'block';
+                else alert(d.message);
+            },
+            async confirmCode() {
+                const res = await fetch(`${API}/auth/step2`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        phone: document.getElementById('phone').value,
+                        code: document.getElementById('otp_code').value
+                    })
+                });
+                if((await res.json()).status === "success") { alert("Готово!"); this.showScreen('menu_screen'); }
+            },
+            async loadAccounts() {
+                const res = await fetch(`${API}/get_my_accounts`, {method:'POST', body: JSON.stringify({login: this.user})});
+                const d = await res.json();
+                document.getElementById('acc_list').innerHTML = d.accounts.map(a => `<div class="card">${a} <button style="float:right">Удалить</button></div>`).join('');
+            }
         }
     </script>
 </body>
