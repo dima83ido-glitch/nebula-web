@@ -2,274 +2,233 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nebula Interstellar OS</title>
+    <title>Nebula</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Inter:wght@300;400;600&display=swap');
-        
-        :root {
-            --bg: #070b14;
-            --panel: #0b1120;
-            --card: #111a2e;
-            --accent: #7ca5ff;
-            --accent-glow: rgba(124, 165, 255, 0.4);
-            --danger: #ff4d4d;
-            --text: #ffffff;
-            --text-dim: #94a3b8;
-        }
-
-        * { box-sizing: border-box; transition: all 0.25s ease; }
-        body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-        }
-
-        /* PHONE FRAME */
-        .wrapper {
-            background: var(--panel);
-            width: 380px;
-            height: 780px;
-            border-radius: 45px;
-            border: 6px solid #1e293b;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            box-shadow: 0 50px 100px rgba(0,0,0,0.9);
-        }
-
-        .screen {
-            flex: 1;
-            padding: 25px;
-            overflow-y: auto;
-            position: relative;
-        }
-
-        .header {
-            text-align: center;
-            padding: 40px 0 20px;
-        }
-
-        .header h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 24px;
-            letter-spacing: 6px;
-            color: var(--accent);
-            text-shadow: 0 0 20px var(--accent-glow);
-            margin: 0;
-        }
-
-        /* UI ELEMENTS */
-        .card {
-            background: var(--card);
-            border: 1px solid #1e293b;
-            border-radius: 22px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .card:hover { border-color: var(--accent); transform: translateY(-3px); }
-
-        .label {
-            font-size: 11px;
-            text-transform: uppercase;
-            color: var(--text-dim);
-            font-weight: 600;
-            letter-spacing: 1.5px;
-            display: block;
-            margin-bottom: 12px;
-        }
-
-        input {
-            width: 100%;
-            background: #070b14;
-            border: 1px solid #334155;
-            border-radius: 14px;
-            padding: 15px;
-            color: white;
-            font-size: 14px;
-            margin-bottom: 12px;
-            outline: none;
-        }
-
-        input:focus { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
-
-        .btn {
-            width: 100%;
-            padding: 18px;
-            border-radius: 16px;
-            border: none;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            margin-top: 10px;
-        }
-
-        .btn-main { background: var(--accent); color: #000; box-shadow: 0 0 15px var(--accent-glow); }
-        .btn-ghost { background: #1e293b; color: white; border: 1px solid #334155; }
-        .btn-ghost:hover { background: #334155; }
-
-        /* PAGES */
-        .page { display: none; height: 100%; animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .active { display: block; }
-
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .status-badge {
-            background: rgba(124, 165, 255, 0.1);
-            color: var(--accent);
-            padding: 5px 12px;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: bold;
-        }
+        body { background:#070b14; font-family:Arial; color:white; margin:0; padding:0; }
+        .topbar { display:flex; justify-content:space-between; padding:20px; background:#0f1725; }
+        .container { padding:20px; }
+        .card { background:#101827; padding:20px; border-radius:15px; margin-bottom:15px; border:1px solid #1e293b; }
+        input, select, textarea { width:100%; padding:12px; margin-top:10px; background:#0b1120; border:1px solid #334155; color:white; border-radius:10px; box-sizing: border-box; }
+        button { margin-top:10px; padding:12px; width:100%; border:none; background:#2563eb; color:white; border-radius:10px; cursor:pointer; font-weight: bold; }
+        .page { display:none; }
+        .active { display:block; }
+        .acc { display:flex; justify-content:space-between; align-items:center; }
+        label { display: block; margin-top: 10px; font-size: 14px; color: #94a3b8; }
     </style>
 </head>
 <body>
 
-<div class="wrapper">
-    <div class="screen">
-        <div id="pageLogin" class="page active">
-            <div class="header"><h1>NEBULA</h1></div>
-            <div style="margin-top: 60px;">
-                <div class="card">
-                    <label class="label">Authentication</label>
-                    <input id="logU" placeholder="Логин">
-                    <input id="logP" type="password" placeholder="Пароль">
-                    <button class="btn btn-main" onclick="doLogin()">ACCESS SYSTEM</button>
-                </div>
-            </div>
-        </div>
-
-        <div id="pageDash" class="page">
-            <div class="header"><h1>CONSOLE</h1></div>
-            <div class="card">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <label class="label">Worker Nickname</label>
-                        <div id="userNick" style="font-size: 20px; font-weight: bold;">---</div>
-                    </div>
-                    <div class="status-badge">ACTIVE</div>
-                </div>
-            </div>
-
-            <div class="card">
-                <label class="label">Main Modules</label>
-                <button class="btn btn-ghost" style="text-align: left;" onclick="showPage('pageAddAcc')">➕ Добавить аккаунт</button>
-                <button class="btn btn-ghost" style="text-align: left; margin-top: 10px;">📜 Мои аккаунты</button>
-                <button class="btn btn-ghost" style="text-align: left; margin-top: 10px;">🚀 Рассылки</button>
-            </div>
-
-            <div id="adminPanel" class="card" style="display:none; border: 1px solid var(--accent);">
-                <label class="label" style="color: var(--accent);">Admin: Add Worker</label>
-                <input id="admW" placeholder="Новый логин">
-                <input id="admP" placeholder="Пароль">
-                <button class="btn btn-main" onclick="adminAddWorker()">CREATE WORKER</button>
-            </div>
-        </div>
-
-        <div id="pageAddAcc" class="page">
-            <div class="header"><h1>LINKING</h1></div>
-            <div class="card">
-                <label class="label">Telegram Credentials</label>
-                <input id="phone" placeholder="+380...">
-                <input id="apiId" placeholder="API ID">
-                <input id="apiHash" placeholder="API Hash">
-                <button class="btn btn-main" onclick="sendCode()">SEND CODE</button>
-            </div>
-            <div id="verifyBlock" class="card" style="display:none;">
-                <label class="label">Verify OTP</label>
-                <input id="code" placeholder="Код из Telegram">
-                <button class="btn btn-main" onclick="verifyCode()">CONFIRM</button>
-            </div>
-            <button class="btn btn-ghost" onclick="showPage('pageDash')">BACK TO DASH</button>
+<div id="loginPage" class="page active">
+    <div class="container">
+        <div class="card">
+            <h2>NEBULA LOGIN</h2>
+            <input id="loginUsername" placeholder="Username">
+            <input id="loginPassword" type="password" placeholder="Password">
+            <label><input type="checkbox" id="remember" style="width:auto; margin-top:0;"> Remember me</label>
+            <button onclick="login()">Войти</button>
         </div>
     </div>
 </div>
 
+<div id="dashboard" class="page">
+    <div class="topbar">
+        <div id="nickname" style="font-weight:bold; color:#2563eb;"></div>
+        <button onclick="logout()" style="width:auto; margin-top:0; background:#ef4444; padding:5px 15px;">Выход</button>
+    </div>
+    <div class="container">
+        <div class="card">
+            <button onclick="openMailingPage()" style="background:#10b981;">🚀 ЗАПУСТИТЬ РАССЫЛКУ</button>
+            <button onclick="openPage('addAccount')" style="background:#334155;">Добавить аккаунт</button>
+            <button onclick="loadAccounts()" style="background:#334155;">Мои аккаунты</button>
+        </div>
+    </div>
+</div>
+
+<div id="mailingPage" class="page">
+    <div class="container">
+        <button onclick="openPage('dashboard')" style="background:#334155;">← Назад</button>
+        <div class="card">
+            <h2>NEBULA SPAMMER</h2>
+            <label>Аккаунт для рассылки:</label>
+            <select id="mailAccount"><option value="">Загрузка...</option></select>
+            <textarea id="mailText" placeholder="Текст сообщения..." style="height:100px;"></textarea>
+            <textarea id="mailChats" placeholder="Список чатов (@user через запятую)" style="height:80px;"></textarea>
+            <div style="display:flex; gap:10px;">
+                <div style="flex:1;"><label>Мин. задержка</label><input id="delayMin" type="number" value="15"></div>
+                <div style="flex:1;"><label>Макс. задержка</label><input id="delayMax" type="number" value="30"></div>
+            </div>
+            <button id="startBtn" onclick="startSpam()" style="background:#8b5cf6; margin-top:20px;">НАЧАТЬ ПРОЦЕСС</button>
+        </div>
+        <div id="spamStatus" class="card" style="display:none; border-color:#8b5cf6;">
+            <div id="processInfo">Статус: В работе...</div>
+            <div style="margin-top:5px;">Успешно: <span id="successCount" style="color:#10b981;">0</span> | Ошибок: <span id="errorCount" style="color:#ef4444;">0</span></div>
+        </div>
+    </div>
+</div>
+
+<div id="addAccount" class="page">
+    <div class="container">
+        <button onclick="openPage('dashboard')" style="background:#334155;">Назад</button>
+        <div class="card">
+            <input id="phone" placeholder="+380...">
+            <input id="api_id" placeholder="API ID">
+            <input id="api_hash" placeholder="API HASH">
+            <input id="proxy" placeholder="SOCKS5 Proxy (опционально)">
+            <label><input type="checkbox" id="use_proxy" style="width:auto; margin-top:0;"> Использовать proxy</label>
+            <button onclick="sendCode()">Отправить код</button>
+        </div>
+        <div id="codeBlock" class="card" style="display:none"><input id="code" placeholder="Код подтверждения"><button onclick="verifyCode()">Подтвердить</button></div>
+        <div id="passwordBlock" class="card" style="display:none"><input id="password2fa" type="password" placeholder="2FA Cloud Password"><button onclick="verifyPassword()">Войти</button></div>
+    </div>
+</div>
+
+<div id="accountsPage" class="page">
+    <div class="container">
+        <button onclick="openPage('dashboard')" style="background:#334155;">Назад</button>
+        <div id="accountsList" style="margin-top:15px;"></div>
+    </div>
+</div>
+
 <script>
-    const API_BASE = "https://ТВОЙ-ДОМЕН.onrender.com";
-    let myUser = "";
-    let myRole = "";
+    const API = "https://nebula-web-nwdf.onrender.com"; 
+    let currentUser = localStorage.getItem("username") || "";
+    let auth_id = "";
 
-    function showPage(id) {
-        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-        document.getElementById(id).classList.add('active');
+    if(currentUser) {
+        document.getElementById("nickname").innerText = currentUser;
+        openPage("dashboard");
     }
 
-    async function doLogin() {
-        const u = document.getElementById('logU').value;
-        const p = document.getElementById('logP').value;
-        
-        const res = await fetch(`${API_BASE}/api/login`, {
-            method: 'POST',
-            body: JSON.stringify({username:u, password:p})
+    function openPage(id){
+        document.querySelectorAll(".page").forEach(x => x.classList.remove("active"));
+        document.getElementById(id).classList.add("active");
+    }
+
+    async function login(){
+        const user = document.getElementById("loginUsername").value;
+        const pass = document.getElementById("loginPassword").value;
+        const r = await fetch(API+"/login", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ username: user, password: pass })
         });
-        const data = await res.json();
-        
-        if(data.status) {
-            myUser = data.username;
-            myRole = data.role;
-            document.getElementById('userNick').innerText = myUser;
-            if(myRole === 'admin') document.getElementById('adminPanel').style.display = 'block';
-            showPage('pageDash');
-        } else {
-            alert("Error: " + data.message);
+        const d = await r.json();
+        if(d.status){
+            currentUser = user;
+            localStorage.setItem("username", currentUser);
+            document.getElementById("nickname").innerText = currentUser;
+            openPage("dashboard");
+        } else { alert(d.message); }
+    }
+
+    function logout(){
+        localStorage.clear();
+        location.reload();
+    }
+
+    async function openMailingPage() {
+        openPage('mailingPage');
+        const r = await fetch(API + "/accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: currentUser })
+        });
+        const d = await r.json();
+        let options = '<option value="">Выбрать аккаунт...</option>';
+        if(d.accounts) {
+            d.accounts.forEach(acc => { options += `<option value="${acc.phone}">${acc.phone}</option>`; });
         }
+        document.getElementById("mailAccount").innerHTML = options;
     }
 
-    async function adminAddWorker() {
-        const u = document.getElementById('admW').value;
-        const p = document.getElementById('admP').value;
-        const res = await fetch(`${API_BASE}/api/admin/add_worker`, {
-            method: 'POST',
-            body: JSON.stringify({admin_nick: myUser, username: u, password: p})
+    async function startSpam() {
+        const btn = document.getElementById("startBtn");
+        const data = {
+            username: currentUser,
+            phone: document.getElementById("mailAccount").value,
+            text: document.getElementById("mailText").value,
+            chats: document.getElementById("mailChats").value.split(/[\n,]/).map(c => c.trim()).filter(c => c !== ""),
+            delay: [parseInt(document.getElementById("delayMin").value), parseInt(document.getElementById("delayMax").value)]
+        };
+        if(!data.phone || !data.text) return alert("Заполни все поля!");
+        btn.disabled = true;
+        btn.innerText = "ЗАПУЩЕНО...";
+        const r = await fetch(API + "/start_mailing", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
         });
-        const d = await res.json();
-        alert(d.message);
+        const res = await r.json();
+        if(res.status) { document.getElementById("spamStatus").style.display="block"; alert("Запущено!"); }
+        else { alert("Ошибка: " + res.message); btn.disabled = false; btn.innerText = "НАЧАТЬ ПРОЦЕСС"; }
     }
 
-    let currentAuthId = "";
-    async function sendCode() {
-        const res = await fetch(`${API_BASE}/api/tg/send_code`, {
-            method: 'POST',
-            body: JSON.stringify({
-                username: myUser,
-                phone: document.getElementById('phone').value,
-                api_id: document.getElementById('apiId').value,
-                api_hash: document.getElementById('apiHash').value
+    async function sendCode(){
+        const r = await fetch(API+"/send_code", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({
+                username: currentUser,
+                phone: document.getElementById("phone").value,
+                api_id: document.getElementById("api_id").value,
+                api_hash: document.getElementById("api_hash").value,
+                proxy: document.getElementById("proxy").value,
+                use_proxy: document.getElementById("use_proxy").checked
             })
         });
-        const d = await res.json();
-        if(d.status) {
-            currentAuthId = d.auth_id;
-            document.getElementById('verifyBlock').style.display = 'block';
-        } else { alert(d.message); }
+        const d = await r.json();
+        if(d.status){ auth_id = d.auth_id; document.getElementById("codeBlock").style.display="block"; }
+        else { alert(d.message); }
     }
 
-    async function verifyCode() {
-        const res = await fetch(`${API_BASE}/api/tg/verify`, {
-            method: 'POST',
-            body: JSON.stringify({
-                auth_id: currentAuthId,
-                code: document.getElementById('code').value
-            })
+    async function verifyCode(){
+        const r = await fetch(API+"/verify_code", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ auth_id: auth_id, code: document.getElementById("code").value })
         });
-        const d = await res.json();
-        if(d.status) {
-            alert("Account Success Connected!");
-            showPage('pageDash');
-        } else { alert(d.message); }
+        const d = await r.json();
+        if(d.need_password) { document.getElementById("passwordBlock").style.display="block"; }
+        else if(d.status) { alert("Ок!"); openPage("dashboard"); }
+        else { alert(d.message); }
+    }
+
+    async function verifyPassword(){
+        const r = await fetch(API+"/verify_password", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ auth_id: auth_id, password: document.getElementById("password2fa").value })
+        });
+        const d = await r.json();
+        if(d.status) { openPage("dashboard"); }
+        else { alert(d.message); }
+    }
+
+    async function loadAccounts(){
+        openPage("accountsPage");
+        const r = await fetch(API+"/accounts", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ username: currentUser })
+        });
+        const d = await r.json();
+        let html = "";
+        if(d.accounts) {
+            d.accounts.forEach(acc => {
+                html += `<div class="card acc"><span>${acc.phone}</span><button onclick="deleteAccount(${acc.id})" style="width:auto; background:#ef4444; margin:0;">Удалить</button></div>`;
+            });
+        }
+        document.getElementById("accountsList").innerHTML = html || "Пусто";
+    }
+
+    async function deleteAccount(id){
+        if(!confirm("Удалить?")) return;
+        await fetch(API+"/delete_account", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({ account_id: id })
+        });
+        loadAccounts();
     }
 </script>
 </body>
