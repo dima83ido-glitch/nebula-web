@@ -1,5 +1,9 @@
-import asyncio
 import os
+
+# 1. СТРОГО ПЕРВОЙ СТРОЧКОЙ: Отключаем встроенную магию Pyrogram для совместимости с Python 3.14
+os.environ["PYROGRAM_COMPILER"] = "0"
+
+import asyncio
 import json
 import uuid
 import bcrypt
@@ -8,9 +12,10 @@ import aiosqlite
 from aiohttp import web
 import aiohttp_cors
 
+# 2. Теперь импортируем Pyrogram, когда переменная окружения уже задана
 from pyrogram import Client
 from pyrogram.errors import (
-    SessionPasswordNeeded,
+    SessionPasswordNeeded, 
     FloodWait
 )
 
