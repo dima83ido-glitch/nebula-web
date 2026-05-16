@@ -6,115 +6,114 @@
 
 <style>
     body {
-        background: #0d121d;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        color: white;
-        margin: 0;
-        padding: 0;
-    }
 
-    /* Верхняя панель */
-    .topbar {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 15px 20px;
-        background: #111827;
-    }
+    background: #0d121d;
+    font-family: 'Inter', sans-serif;
+    color: #e2e8f0;
+    margin: 0;
+}
 
-    .brand-title {
-        font-weight: bold;
-        font-size: 24px;
-        color: #93c5fd;
-        letter-spacing: 2px;
-    }
+/* Общие контейнеры */
+.page { display: none; padding-bottom: 50px; }
+.page.active { display: block; }
+.container { padding: 20px; max-width: 500px; margin: 0 auto; }
 
-    .user-info {
-        display: flex;
-        align-items: center;
-        padding: 10px 20px;
-        color: #94a3b8;
-    }
+/* Карточки и Секции */
+.section-card {
+    background: #111827;
+    padding: 20px;
+    border-radius: 20px;
+    margin-bottom: 20px;
+    border: 1px solid #1e293b;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+}
 
-    .logout-btn {
-        background: #1e293b;
-        border: 1px solid #334155;
-        padding: 5px 15px;
-        border-radius: 8px;
-        color: #fdba74;
-        cursor: pointer;
-        font-size: 14px;
-        text-transform: uppercase;
-    }
+.section-header {
+    font-size: 12px;
+    font-weight: 800;
+    color: #64748b;
+    margin-bottom: 15px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
 
-    /* Контейнер и карточки */
-    .container {
-        padding: 15px;
-    }
+/* Кнопки */
+.menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 15px;
+    margin-bottom: 12px;
+    background: #0f172a;
+    border: 1px solid #1e293b;
+    color: #93c5fd;
+    border-radius: 12px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+}
 
-    .section-card {
-        background: #111827;
-        padding: 20px;
-        border-radius: 24px;
-        margin-bottom: 20px;
-        border: 1px solid #1e293b;
-    }
+.menu-btn:hover { background: #1e293b; transform: translateY(-2px); }
 
-    .section-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 15px;
-        font-size: 14px;
-        font-weight: bold;
-        color: #94a3b8;
-        text-transform: uppercase;
-    }
+.back-btn {
+    background: none;
+    border: none;
+    color: #94a3b8;
+    cursor: pointer;
+    font-size: 18px;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+}
 
-    /* Кнопки как на фото */
-    .menu-btn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: 10px;
-        width: 100%;
-        padding: 14px;
-        margin-bottom: 10px;
-        background: #0f172a;
-        border: 1px solid #1e293b;
-        color: #93c5fd;
-        border-radius: 12px;
-        cursor: pointer;
-        font-size: 16px;
-        font-weight: 600;
-        text-transform: uppercase;
-        transition: 0.2s;
-    }
+/* Инпуты */
+input, select {
+    width: 100%;
+    padding: 12px;
+    margin: 8px 0;
+    background: #0b1120;
+    border: 1px solid #334155;
+    color: white;
+    border-radius: 10px;
+    box-sizing: border-box;
+}
 
-    .menu-btn:hover {
-        background: #1e293b;
-    }
+/* Выбор чатов */
+.chat-item {
+    padding: 12px;
+    margin: 5px 0;
+    background: #1e293b;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: 0.2s;
+}
 
-    .menu-btn:last-child {
-        margin-bottom: 0;
-    }
+.chat-item.selected {
+    border-color: #2563eb;
+    background: #1e3a8a;
+}
 
-    /* Поля ввода (для страницы входа) */
-    input {
-        width: 100%;
-        padding: 12px;
-        margin-top: 10px;
-        background: #0b1120;
-        border: 1px solid #334155;
-        color: white;
-        border-radius: 10px;
-        box-sizing: border-box;
-    }
+.counter-badge {
+    background: #2563eb;
+    padding: 5px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    margin-top: 10px;
+    display: inline-block;
+}
 
-    .page { display: none; }
-    .active { display: block; }
+/* Иконки действий */
+.action-icons {
+    display: flex;
+    gap: 15px;
+    font-size: 18px;
+}
 
-    #nickname { margin-left: 5px; color: #94a3b8; }
+.icon-edit { color: #fbbf24; cursor: pointer; }
+.icon-delete { color: #f87171; cursor: pointer; }
+.icon-toggle { color: #4ade80; cursor: pointer; }
 </style>
 </head>
 <body>
