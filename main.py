@@ -116,6 +116,26 @@ async def create_admin():
 
             await db.commit()
 
+async def create_mailing(request):
+    try:
+        data = await request.json()
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute(
+                "INSERT INTO mailings (name, text1, interval_seconds) VALUES (?, ?, ?)",
+                (data['name'], data['text'], int(data['interval']))
+            )
+            await db.commit()
+        return web.json_response({"status": True})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
+
+async def get_mailings(request):
+    async with aiosqlite.connect(DATABASE) as db:
+        cursor = await db.execute("SELECT id, name, interval_seconds FROM mailings")
+        rows = await cursor.fetchall()
+        mailings = [{"id": r[0], "name": r[1], "interval": r[2]} for r in rows]
+    return web.json_response({"status": True, "mailings": mailings})
+
 # =========================
 # HELPERS
 # =========================
