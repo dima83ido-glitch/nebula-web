@@ -654,6 +654,50 @@ async def delete_mailing(request):
     return json_response(True)
 
 # =========================
+# EDIT ACCOUNT & MAILING
+# =========================
+
+async def update_account(request):
+    try:
+        data = await request.json()
+        acc_id = data["account_id"]
+        
+        # Данные для обновления
+        phone = data.get("phone")
+        api_id = data.get("api_id")
+        api_hash = data.get("api_hash")
+        proxy = data.get("proxy")
+
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("""
+                UPDATE accounts 
+                SET phone=?, api_id=?, api_hash=?, proxy=?
+                WHERE id=?
+            """, (phone, api_id, api_hash, json.dumps(proxy), acc_id))
+            await db.commit()
+            
+        return json_response(True, "Данные аккаунта обновлены")
+    except Exception as e:
+        return json_response(False, str(e))
+
+async def update_mailing(request):
+    try:
+        data = await request.json()
+        m_id = data["id"]
+        
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("""
+                UPDATE mailings 
+                SET name=?, text1=?, text2=?, text3=?, interval_seconds=?
+                WHERE id=?
+            """, (data["name"], data["text1"], data["text2"], data["text3"], int(data["interval"]), m_id))
+            await db.commit()
+            
+        return json_response(True, "Рассылка обновлена")
+    except Exception as e:
+        return json_response(False, str(e))
+
+# =========================
 # START APP
 # =========================
 
@@ -696,6 +740,9 @@ async def create_app():
 
     app.router.add_post("/accounts", list_accounts)
     app.router.add_post("/delete_account", delete_account)
+
+    app.router.add_post("/update_account", update_account)
+    app.router.add_post("/update_mailing", update_mailing)
 
     cors = aiohttp_cors.setup(app, defaults={
         "*": aiohttp_cors.ResourceOptions(
