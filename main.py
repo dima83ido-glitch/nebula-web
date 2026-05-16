@@ -1,16 +1,23 @@
 import asyncio
+import sys
+
+# ХАК ДЛЯ PYTHON 3.11+ И PYROGRAM
+# Мы создаем loop до того, как библиотека попытается его найти при импорте
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
 import os
 import json
-import uuid
+import logging
 import bcrypt
 import aiosqlite
-import logging
-import datetime
-import random
-
 from aiohttp import web
 import aiohttp_cors
 
+# Теперь импортируем Pyrogram — теперь он не упадет
 from pyrogram import Client, filters
 from pyrogram.errors import (
     SessionPasswordNeeded,
