@@ -1,140 +1,196 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>NEBULA</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nebula</title>
+
 <style>
-    body {background:#070b14;color:#e0e7ff;font-family:Arial;margin:0;}
-    .topbar {display:flex;justify-content:space-between;align-items:center;padding:15px 20px;background:#0f1725;}
-    .logo {font-size:24px;font-weight:bold;color:#00d4ff;}
-    .card {background:#101827;margin:15px;padding:18px;border-radius:12px;border:1px solid #1e293b;}
-    button {width:100%;padding:14px;margin:8px 0;background:#1e2937;color:white;border:none;border-radius:10px;font-size:16px;cursor:pointer;}
-    button.accent {background:#00d4ff;color:#000;font-weight:bold;}
-    input, textarea, select {width:100%;padding:12px;margin:8px 0;background:#0b1120;border:1px solid #334155;border-radius:8px;color:white;}
-    .back {color:#00d4ff;background:none;width:auto;padding:8px 0;font-size:16px;}
-    .item {display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid #1e293b;}
+body {
+margin:0;
+background:#070b14;
+color:white;
+font-family:Arial;
+}
+
+.panel {
+padding:20px;
+}
+
+.card {
+background:#0f1725;
+padding:15px;
+border-radius:15px;
+margin-bottom:15px;
+border:1px solid #1f2937;
+}
+
+button {
+width:100%;
+padding:12px;
+border-radius:10px;
+border:none;
+background:#2563eb;
+color:white;
+cursor:pointer;
+margin-top:10px;
+}
+
+input {
+width:100%;
+padding:10px;
+margin-top:10px;
+background:#0b1220;
+border:1px solid #2a3441;
+color:white;
+border-radius:8px;
+}
+
+.top {
+display:flex;
+justify-content:space-between;
+padding:15px;
+background:#0f1725;
+}
+
+.page {display:none}
+.active {display:block}
 </style>
 </head>
+
 <body>
 
-<div class="topbar">
-    <div class="logo">NEBULA</div>
-    <div><span id="nickname"></span> <button onclick="logout()" style="width:auto;background:#ef4444;padding:6px 12px;">ВЫХОД</button></div>
-</div>
-
 <!-- LOGIN -->
-<div id="loginPage" class="page active">
-    <div class="card">
-        <h2>Вход в NEBULA</h2>
-        <input id="loginUsername" placeholder="Username">
-        <input id="loginPassword" type="password" placeholder="Password">
-        <label><input type="checkbox" id="remember"> Запомнить меня</label>
-        <button class="accent" onclick="login()">ВОЙТИ</button>
-        <button onclick="registerUser()">Создать пользователя (для админа)</button>
-    </div>
+<div id="login" class="page active panel">
+<div class="card">
+<h2>NEBULA</h2>
+<input id="u" placeholder="login">
+<input id="p" type="password" placeholder="password">
+<button onclick="login()">Войти</button>
+</div>
 </div>
 
 <!-- DASHBOARD -->
-<div id="dashboard" class="page">
-    <div class="card"><button onclick="openPage('addAccount')" class="accent">+ ДОБАВИТЬ АККАУНТ</button></div>
-    <div class="card"><button onclick="loadAccounts()">МОИ АККАУНТЫ</button></div>
-    <div class="card"><button onclick="loadMailings()">МОИ РАССЫЛКИ</button></div>
+<div id="dash" class="page">
+
+<div class="top">
+<div id="user"></div>
+<button onclick="logout()">Выход</button>
 </div>
 
-<!-- ADD ACCOUNT -->
-<div id="addAccount" class="page">
-    <button class="back" onclick="openPage('dashboard')">← Назад</button>
-    <div class="card">
-        <input id="phone" placeholder="+380XXXXXXXXX">
-        <input id="api_id" placeholder="API ID" type="number">
-        <input id="api_hash" placeholder="API HASH">
-        <input id="proxy" placeholder="socks5://...">
-        <label><input type="checkbox" id="use_proxy"> Использовать прокси</label>
-        <button class="accent" onclick="sendCode()">ОТПРАВИТЬ КОД</button>
-    </div>
-    <div id="codeBlock" class="card" style="display:none"><input id="code" placeholder="Код"><button class="accent" onclick="verifyCode()">ПОДТВЕРДИТЬ</button></div>
-    <div id="passwordBlock" class="card" style="display:none"><input id="password2fa" type="password" placeholder="2FA"><button class="accent" onclick="verifyPassword()">ПОДТВЕРДИТЬ 2FA</button></div>
+<div class="panel">
+
+<div class="card">
+<h3>АККАУНТЫ</h3>
+<button onclick="loadAccounts()">МОИ АККАУНТЫ</button>
+<button onclick="openAdd()">+ ДОБАВИТЬ</button>
 </div>
 
-<!-- ACCOUNTS -->
-<div id="accountsPage" class="page">
-    <button class="back" onclick="openPage('dashboard')">← Назад</button>
-    <div class="card" id="accountsList"></div>
+<div class="card">
+<h3>РАССЫЛКИ</h3>
+<button onclick="alert('будет дальше')">ВСЕ РАССЫЛКИ</button>
 </div>
 
-<!-- MAILINGS -->
-<div id="mailingsPage" class="page">
-    <button class="back" onclick="openPage('dashboard')">← Назад</button>
-    <div class="card"><button class="accent" onclick="openCreateMailing()">+ СОЗДАТЬ РАССЫЛКУ</button></div>
-    <div class="card" id="mailingsList"></div>
+</div>
 </div>
 
-<!-- CREATE MAILING -->
-<div id="createMailingPage" class="page">
-    <button class="back" onclick="openPage('mailingsPage')">← Назад</button>
-    <div class="card">
-        <select id="mailAccount"></select>
-        <input id="mailName" placeholder="Название рассылки">
-        <textarea id="text1" placeholder="Текст 1" rows="3"></textarea>
-        <textarea id="text2" placeholder="Текст 2" rows="3"></textarea>
-        <textarea id="text3" placeholder="Текст 3" rows="3"></textarea>
-        <input id="interval" type="number" value="60">
-        <button onclick="loadChatsForMailing()">Загрузить чаты</button>
-        <div id="chatsContainer" style="max-height:300px;overflow:auto;"></div>
-        <button class="accent" onclick="createMailing()">ЗАПУСТИТЬ</button>
-    </div>
+<!-- ADD -->
+<div id="add" class="page panel">
+<div class="card">
+
+<input id="phone" placeholder="phone">
+<input id="api_id" placeholder="api id">
+<input id="api_hash" placeholder="api hash">
+
+<button onclick="sendCode()">Отправить код</button>
+
+<input id="code" placeholder="code">
+<button onclick="verify()">Подтвердить</button>
+
+</div>
 </div>
 
 <script>
-const API = "https://твой.onrender.com"; // ИЗМЕНИ!
-let currentUser = "", auth_id = "", selectedChats = [];
 
-function openPage(id) {
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
+const API="http://localhost:8080"
+let token=""
+let auth=""
+
+function show(id){
+document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"))
+document.getElementById(id).classList.add("active")
 }
 
-async function registerUser() {
-    const username = prompt("Новый username:");
-    const password = prompt("Пароль:");
-    if (!username || !password) return;
-    const res = await fetch(API + "/register", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({username, password})});
-    const d = await res.json();
-    alert(d.message);
+async function login(){
+const r=await fetch(API+"/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+username:u.value,
+password:p.value
+})})
+const d=await r.json()
+
+token=d.token
+localStorage.setItem("t",token)
+
+document.getElementById("user").innerText=u.value
+show("dash")
 }
 
-async function login() {
-    const username = document.getElementById("loginUsername").value;
-    const password = document.getElementById("loginPassword").value;
-    const remember = document.getElementById("remember").checked;
-    const res = await fetch(API + "/login", {
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({username, password, remember})
-    });
-    const d = await res.json();
-    if (d.status) {
-        currentUser = username;
-        localStorage.setItem("username", username);
-        document.getElementById("nickname").innerText = username;
-        openPage("dashboard");
-    } else alert(d.message);
+function logout(){
+localStorage.clear()
+location.reload()
 }
 
-function logout() {
-    localStorage.clear();
-    location.reload();
+function openAdd(){
+show("add")
 }
 
-// Остальные функции (sendCode, verifyCode, loadAccounts, loadMailings и т.д.) — такие же как в предыдущих сообщениях. 
-// Если нужно — скажи, но код уже должен работать.
+async function sendCode(){
+const r=await fetch(API+"/send_code",{
+method:"POST",
+headers:{
+"Content-Type":"application/json",
+"Authorization":"Bearer "+token
+},
+body:JSON.stringify({
+phone:phone.value,
+api_id:api_id.value,
+api_hash:api_hash.value
+})
+})
 
-if (localStorage.getItem("username")) {
-    currentUser = localStorage.getItem("username");
-    document.getElementById("nickname").innerText = currentUser;
-    openPage("dashboard");
+const d=await r.json()
+auth=d.auth_id
+alert("код отправлен")
 }
+
+async function verify(){
+const r=await fetch(API+"/verify_code",{
+method:"POST",
+headers:{
+"Content-Type":"application/json"
+},
+body:JSON.stringify({
+auth_id:auth,
+code:code.value
+})
+})
+
+alert("готово")
+}
+
+async function loadAccounts(){
+const r=await fetch(API+"/accounts",{
+method:"POST",
+headers:{
+"Authorization":"Bearer "+token
+}
+})
+
+const d=await r.json()
+
+alert(JSON.stringify(d.accounts))
+}
+
 </script>
+
 </body>
 </html>
