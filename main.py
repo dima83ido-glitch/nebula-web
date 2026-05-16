@@ -1,330 +1,320 @@
+import asyncio
 import os
 import json
 import uuid
 import bcrypt
-import asyncio
 import aiosqlite
+import logging
+import datetime
+import random
 
 from aiohttp import web
 import aiohttp_cors
-from pyrogram import Client
-from pyrogram.errors import SessionPasswordNeeded, FloodWait
+
+from pyrogram import Client, filters
+from pyrogram.errors import (
+    SessionPasswordNeeded,
+    FloodWait,
+    PhoneNumberInvalid,
+    ApiIdInvalid,
+    PhoneCodeInvalid,
+    PhoneCodeExpired,
+    PasswordHashInvalid,
+    AuthKeyUnregistered,
+    UserDeactivated,
+    SessionRevoked
+)
+
+# ==============================================================================
+# CONFIGURATION & LOGGING
+# ==============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("logs/system.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger("NEBULA-CORE")
 
 PORT = int(os.environ.get("PORT", 8080))
-DB = "nebula.db"
+SESSIONS_DIR = "sessions"
+DATABASE = "nebula.db"
 
-os.makedirs("sessions", exist_ok=True)
+for folder in [SESSIONS_DIR, "logs"]:
+    if not os.path.exists(folder):
+        os.makedirs(folder)
 
-# =========================
-# RUNTIME STORAGE
-# =========================
+# ==============================================================================
+# GLOBALS
+# ==============================================================================
 
-clients = {}          # account_id -> Client
-mailing_tasks = {}    # mailing_id -> task
-pending_auth = {}
+pending_auths = {}  # {auth_id: {client, phone, api_id, ...}}
+active_workers = {} # {mailing_id: Task}
 
-# =========================
-# DB INIT
-# =========================
+# ==============================================================================
+# DATABASE ENGINE
+# ==============================================================================
 
 async def init_db():
-    async with aiosqlite.connect(DB) as db:
-
+    logger.info("Initializing NEBULA Database...")
+    async with aiosqlite.connect(DATABASE) as db:
+        # ТАБЛИЦА ПОЛЬЗОВАТЕЛЕЙ (ВОРКЕРОВ)
         await db.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT,
-            token TEXT
-        )
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password TEXT NOT NULL,
+                role TEXT DEFAULT 'user',
+                balance REAL DEFAULT 0.0,
+                is_active INTEGER DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
         """)
-
+        # ТАБЛИЦА ТГ АККАУНТОВ
         await db.execute("""
-        CREATE TABLE IF NOT EXISTS accounts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id INTEGER,
-            phone TEXT,
-            api_id TEXT,
-            api_hash TEXT,
-            proxy TEXT,
-            session TEXT
-        )
+            CREATE TABLE IF NOT EXISTS accounts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER,
+                phone TEXT UNIQUE,
+                api_id TEXT,
+                api_hash TEXT,
+                proxy TEXT,
+                session_name TEXT,
+                status TEXT DEFAULT 'active',
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(owner_id) REFERENCES users(id)
+            )
         """)
-
+        # ТАБЛИЦА РАССЫЛОК (МАКСИМАЛЬНО ПОДРОБНО)
         await db.execute("""
-        CREATE TABLE IF NOT EXISTS mailings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            owner_id INTEGER,
-            account_id INTEGER,
-            name TEXT,
-            text1 TEXT,
-            text2 TEXT,
-            text3 TEXT,
-            interval_sec INTEGER,
-            chats TEXT,
-            status TEXT DEFAULT 'stopped',
-            sent INTEGER DEFAULT 0
-        )
+            CREATE TABLE IF NOT EXISTS mailings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_id INTEGER,
+                account_id INTEGER,
+                name TEXT,
+                message_text_1 TEXT,
+                message_text_2 TEXT,
+                message_text_3 TEXT,
+                delay_min INTEGER,
+                delay_max INTEGER,
+                chats_list TEXT,
+                status TEXT DEFAULT 'stopped',
+                total_sent INTEGER DEFAULT 0,
+                last_error TEXT,
+                last_run_at TIMESTAMP,
+                FOREIGN KEY(owner_id) REFERENCES users(id),
+                FOREIGN KEY(account_id) REFERENCES accounts(id)
+            )
         """)
-
         await db.commit()
+    await create_root_admin()
 
+async def create_root_admin():
+    async with aiosqlite.connect(DATABASE) as db:
+        cursor = await db.execute("SELECT * FROM users WHERE username=?", ("admin",))
+        if not await cursor.fetchone():
+            hashed = bcrypt.hashpw("orion123".encode(), bcrypt.gensalt()).decode()
+            await db.execute(
+                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
+                ("admin", hashed, "admin")
+            )
+            await db.commit()
+            logger.info("Root admin 'admin' created with pass 'orion123'")
 
-# =========================
-# HELPERS
-# =========================
+# ==============================================================================
+# AUTH & WORKER MANAGEMENT
+# ==============================================================================
 
-def res(ok=True, **kwargs):
-    return web.json_response({"status": ok, **kwargs})
-
-
-async def user_by_token(request):
-    token = request.headers.get("Authorization", "").replace("Bearer ", "")
-
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT * FROM users WHERE token=?", (token,))
-        return await cur.fetchone()
-
-
-# =========================
-# AUTH
-# =========================
-
-async def login(request):
-    data = await request.json()
-
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT * FROM users WHERE username=?", (data["username"],))
-        user = await cur.fetchone()
-
-    if not user:
-        return res(False, message="User not found")
-
-    if not bcrypt.checkpw(data["password"].encode(), user[2].encode()):
-        return res(False, message="Wrong password")
-
-    token = str(uuid.uuid4())
-
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE users SET token=? WHERE id=?", (token, user[0]))
-        await db.commit()
-
-    return res(True, token=token, username=user[1])
-
-
-# =========================
-# PYROGRAM CLIENT
-# =========================
-
-async def get_client(acc):
-    if acc[0] in clients:
-        return clients[acc[0]]
-
-    proxy = json.loads(acc[5]) if acc[5] else None
-
-    client = Client(
-        acc[6],
-        api_id=int(acc[3]),
-        api_hash=acc[4],
-        proxy=proxy
-    )
-
-    await client.connect()
-    clients[acc[0]] = client
-    return client
-
-
-# =========================
-# SEND CODE
-# =========================
-
-async def send_code(request):
-    user = await user_by_token(request)
-    if not user:
-        return res(False, message="Unauthorized")
-
-    d = await request.json()
-
-    client = Client(
-        f"sessions/{user[1]}_{d['phone']}",
-        api_id=int(d["api_id"]),
-        api_hash=d["api_hash"],
-        proxy=d.get("proxy")
-    )
-
-    await client.connect()
-    sent = await client.send_code(d["phone"])
-
-    auth_id = str(uuid.uuid4())
-
-    pending_auth[auth_id] = {
-        "client": client,
-        "phone": d["phone"],
-        "hash": sent.phone_code_hash,
-        "user": user[0],
-        "session": f"{user[1]}_{d['phone']}",
-        "api_id": d["api_id"],
-        "api_hash": d["api_hash"],
-        "proxy": d.get("proxy")
-    }
-
-    return res(True, auth_id=auth_id)
-
-
-# =========================
-# VERIFY CODE
-# =========================
-
-async def verify_code(request):
-    d = await request.json()
-
-    auth = pending_auth.get(d["auth_id"])
-    if not auth:
-        return res(False, message="Auth expired")
-
-    client = auth["client"]
-
+async def admin_add_worker(request):
     try:
-        await client.sign_in(auth["phone"], auth["hash"], d["code"])
+        data = await request.json()
+        admin_auth = data.get("admin_nick")
+        
+        async with aiosqlite.connect(DATABASE) as db:
+            c = await db.execute("SELECT role FROM users WHERE username=?", (admin_auth,))
+            res = await c.fetchone()
+            if not res or res[0] != 'admin':
+                return web.json_response({"status": False, "message": "ERR_FORBIDDEN"})
 
-    except SessionPasswordNeeded:
-        return res(True, need_password=True)
-
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("""
-        INSERT INTO accounts(owner_id, phone, api_id, api_hash, proxy, session)
-        VALUES(?,?,?,?,?,?)
-        """, (
-            auth["user"],
-            auth["phone"],
-            auth["api_id"],
-            auth["api_hash"],
-            json.dumps(auth["proxy"]),
-            auth["session"]
-        ))
-        await db.commit()
-
-    await client.disconnect()
-
-    return res(True, message="Account added")
-
-
-# =========================
-# ACCOUNTS
-# =========================
-
-async def accounts(request):
-    user = await user_by_token(request)
-    if not user:
-        return res(False)
-
-    async with aiosqlite.connect(DB) as db:
-        cur = await db.execute("SELECT * FROM accounts WHERE owner_id=?", (user[0],))
-        rows = await cur.fetchall()
-
-    return res(True, accounts=[
-        {"id": r[0], "phone": r[2]} for r in rows
-    ])
-
-
-# =========================
-# MAILING WORKER
-# =========================
-
-async def mailing_worker(mid):
-    while True:
-
-        async with aiosqlite.connect(DB) as db:
-            cur = await db.execute("SELECT * FROM mailings WHERE id=?", (mid,))
-            m = await cur.fetchone()
-
-        if not m or m[9] != "active":
-            await asyncio.sleep(3)
-            continue
-
-        async with aiosqlite.connect(DB) as db:
-            cur = await db.execute("SELECT * FROM accounts WHERE id=?", (m[2],))
-            acc = await cur.fetchone()
-
-        client = await get_client(acc)
-
-        dialogs = await client.get_dialogs()
-
-        groups = [
-            d.chat.id for d in dialogs
-            if d.chat.type in ("supergroup", "channel")
-        ]
-
-        texts = [m[4], m[5], m[6]]
-        msg = texts[(m[10] // 50) % 3]
-
-        for g in groups:
+            new_u = data.get("username")
+            new_p = data.get("password")
+            hashed = bcrypt.hashpw(new_p.encode(), bcrypt.gensalt()).decode()
+            
             try:
-                await client.send_message(g, msg)
+                await db.execute(
+                    "INSERT INTO users (username, password, role) VALUES (?, ?, 'user')",
+                    (new_u, hashed)
+                )
+                await db.commit()
+                return web.json_response({"status": True, "message": f"Worker {new_u} added"})
+            except:
+                return web.json_response({"status": False, "message": "User exists"})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
+
+async def handle_login(request):
+    try:
+        data = await request.json()
+        u, p = data.get("username"), data.get("password")
+        
+        async with aiosqlite.connect(DATABASE) as db:
+            db.row_factory = aiosqlite.Row
+            c = await db.execute("SELECT * FROM users WHERE username=?", (u,))
+            user = await c.fetchone()
+            
+            if user and bcrypt.checkpw(p.encode(), user['password'].encode()):
+                return web.json_response({
+                    "status": True,
+                    "role": user['role'],
+                    "username": user['username'],
+                    "token": str(uuid.uuid4())
+                })
+        return web.json_response({"status": False, "message": "Invalid Credentials"})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
+
+# ==============================================================================
+# TELEGRAM CORE LOGIC (CONNECT, 2FA, SESSIONS)
+# ==============================================================================
+
+async def tg_send_code(request):
+    try:
+        data = await request.json()
+        username = data['username']
+        phone = data['phone'].strip().replace(" ", "")
+        api_id = int(data['api_id'])
+        api_hash = data['api_hash']
+        
+        session_name = f"{username}_{phone}"
+        session_path = os.path.join(SESSIONS_DIR, session_name)
+        
+        client = Client(session_path, api_id=api_id, api_hash=api_hash)
+        await client.connect()
+        
+        code_info = await client.send_code(phone)
+        auth_id = str(uuid.uuid4())
+        
+        pending_auths[auth_id] = {
+            "client": client,
+            "phone": phone,
+            "phone_code_hash": code_info.phone_code_hash,
+            "api_id": api_id,
+            "api_hash": api_hash,
+            "username": username,
+            "session_name": session_name
+        }
+        return web.json_response({"status": True, "auth_id": auth_id})
+    except Exception as e:
+        logger.error(f"TG Send Code Error: {e}")
+        return web.json_response({"status": False, "message": str(e)})
+
+async def tg_verify(request):
+    try:
+        data = await request.json()
+        auth = pending_auths.get(data['auth_id'])
+        if not auth: return web.json_response({"status": False, "message": "Session Timeout"})
+        
+        client = auth['client']
+        try:
+            await client.sign_in(auth['phone'], auth['phone_code_hash'], data['code'])
+        except SessionPasswordNeeded:
+            return web.json_response({"status": True, "need_2fa": True})
+        
+        # Сохранение в БД
+        async with aiosqlite.connect(DATABASE) as db:
+            cur = await db.execute("SELECT id FROM users WHERE username=?", (auth['username'],))
+            uid = (await cur.fetchone())[0]
+            await db.execute("""
+                INSERT INTO accounts (owner_id, phone, api_id, api_hash, session_name)
+                VALUES (?, ?, ?, ?, ?)
+            """, (uid, auth['phone'], auth['api_id'], auth['api_hash'], auth['session_name']))
+            await db.commit()
+            
+        await client.disconnect()
+        del pending_auths[data['auth_id']]
+        return web.json_response({"status": True, "message": "Account Bound"})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
+
+# ==============================================================================
+# MAILING ENGINE (ПОЛНЫЙ ЦИКЛ С ОБРАБОТКОЙ ОШИБОК)
+# ==============================================================================
+
+async def mailing_task(mid):
+    async with aiosqlite.connect(DATABASE) as db:
+        db.row_factory = aiosqlite.Row
+        c = await db.execute("SELECT * FROM mailings WHERE id=?", (mid,))
+        m = await c.fetchone()
+        
+        acc_c = await db.execute("SELECT * FROM accounts WHERE id=?", (m['account_id'],))
+        acc = await acc_c.fetchone()
+        
+    client = Client(os.path.join(SESSIONS_DIR, acc['session_name']), 
+                    api_id=int(acc['api_id']), api_hash=acc['api_hash'])
+    
+    try:
+        await client.connect()
+        chats = json.loads(m['chats_list'])
+        texts = [m['message_text_1'], m['message_text_2'], m['message_text_3']]
+        texts = [t for t in texts if t] # только не пустые
+        
+        count = m['total_sent']
+        
+        for chat in chats:
+            # Проверка статуса в реальном времени
+            async with aiosqlite.connect(DATABASE) as db:
+                check = await db.execute("SELECT status FROM mailings WHERE id=?", (mid,))
+                if (await check.fetchone())[0] != 'active': break
+            
+            try:
+                msg = random.choice(texts)
+                await client.send_message(chat, msg)
+                count += 1
+                async with aiosqlite.connect(DATABASE) as db:
+                    await db.execute("UPDATE mailings SET total_sent=? WHERE id=?", (count, mid))
+                    await db.commit()
             except FloodWait as e:
                 await asyncio.sleep(e.value)
+            except Exception as e:
+                logger.warning(f"Failed to send to {chat}: {e}")
+            
+            await asyncio.sleep(random.randint(m['delay_min'], m['delay_max']))
+            
+        await client.disconnect()
+    except Exception as e:
+        logger.error(f"Mailing {mid} Failed: {e}")
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("UPDATE mailings SET status='error', last_error=? WHERE id=?", (str(e), mid))
+            await db.commit()
 
-        await asyncio.sleep(m[7])
+# ==============================================================================
+# API ROUTING & STARTUP
+# ==============================================================================
 
-
-# =========================
-# MAILING CONTROL
-# =========================
-
-async def start_mailing(request):
-    d = await request.json()
-
-    task = asyncio.create_task(mailing_worker(d["id"]))
-    mailing_tasks[d["id"]] = task
-
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE mailings SET status='active' WHERE id=?", (d["id"],))
-        await db.commit()
-
-    return res(True)
-
-
-async def stop_mailing(request):
-    d = await request.json()
-
-    task = mailing_tasks.get(d["id"])
-    if task:
-        task.cancel()
-
-    async with aiosqlite.connect(DB) as db:
-        await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (d["id"],))
-        await db.commit()
-
-    return res(True)
-
-
-# =========================
-# APP
-# =========================
-
-async def app_factory():
+async def make_app():
     await init_db()
-
-    app = web.Application()
-
-    app.router.add_post("/login", login)
-    app.router.add_post("/send_code", send_code)
-    app.router.add_post("/verify_code", verify_code)
-
-    app.router.add_post("/accounts", accounts)
-
-    app.router.add_post("/mailing/start", start_mailing)
-    app.router.add_post("/mailing/stop", stop_mailing)
-
+    app = web.Application(client_max_size=1024**2*10)
+    
+    app.router.add_post("/api/login", handle_login)
+    app.router.add_post("/api/admin/add_worker", admin_add_worker)
+    app.router.add_post("/api/tg/send_code", tg_send_code)
+    app.router.add_post("/api/tg/verify", tg_verify)
+    
+    # CORS
     cors = aiohttp_cors.setup(app, defaults={
-        "*": aiohttp_cors.ResourceOptions(allow_headers="*", allow_methods="*", allow_credentials=True)
+        "*": aiohttp_cors.ResourceOptions(
+            allow_credentials=True,
+            expose_headers="*",
+            allow_headers="*"
+        )
     })
-
-    for r in list(app.router.routes()):
-        cors.add(r)
-
+    for route in list(app.router.routes()):
+        cors.add(route)
+        
     return app
 
-
 if __name__ == "__main__":
-    web.run_app(app_factory(), host="0.0.0.0", port=PORT)
+    web.run_app(make_app(), port=PORT)
