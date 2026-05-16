@@ -67,6 +67,16 @@
     align-items: center;
 }
 
+/* Все страницы по умолчанию скрыты */
+.page {
+    display: none;
+}
+
+/* Только страница с классом active становится видимой */
+.page.active {
+    display: block;
+}
+
 /* Инпуты */
 input, select {
     width: 100%;
@@ -229,6 +239,39 @@ Remember me
 <button onclick="openPage('dashboard')">Назад</button>
 
 <div id="accountsList"></div>
+
+<div id="accountsPage" class="page">
+    <div class="container">
+        <button class="menu-btn" onclick="openPage('dashboard')">🏠 НАЗАД</button>
+        <div id="accountsList"></div>
+    </div>
+</div>
+
+<div id="mailingsPage" class="page">
+    <div class="container">
+        <div class="section-header">📊 СПИСОК РАССЫЛОК</div>
+        
+        <button class="menu-btn" style="border-color: #f472b6; color: #f472b6;" onclick="openPage('createMailingPage')">
+            <span>+</span> СОЗДАТЬ РАССЫЛКУ
+        </button>
+        
+        <button class="menu-btn" onclick="openPage('dashboard')">🏠 НАЗАД</button>
+        <div id="mailingsList"></div>
+    </div>
+</div>
+
+<div id="createMailingPage" class="page">
+    <div class="container">
+        <div class="section-header">🆕 НОВАЯ РАССЫЛКА</div>
+        <input type="text" id="m_name" placeholder="Название" class="menu-btn" style="text-transform:none;">
+        <textarea id="m_text" placeholder="Текст сообщения" class="menu-btn" style="text-transform:none; height:100px;"></textarea>
+        <input type="number" id="m_interval" placeholder="Интервал (сек)" class="menu-btn">
+        
+        <button class="menu-btn" style="background: #3b82f6;" onclick="saveMailing()">СОХРАНИТЬ</button>
+        <button class="menu-btn" onclick="openPage('mailingsPage')">ОТМЕНА</button>
+    </div>
+</div>
+</div>
 
 </div>
 
@@ -463,6 +506,26 @@ account_id:id
 })
 
 })
+
+function openPage(pageId) {
+    // Скрываем абсолютно все блоки с классом page
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    // Показываем только нужный
+    const target = document.getElementById(pageId);
+    if (target) {
+        target.classList.add('active');
+    }
+}
+
+// Твоя функция логина должна выглядеть примерно так:
+async function login() {
+    const user = document.getElementById('login_user').value;
+    const pass = document.getElementById('login_pass').value;
+
+    // Тут твой запрос к серверу...
+    // Если сервер ответил "ок":
+    openPage('dashboard');
+}
 
 loadAccounts()
 
