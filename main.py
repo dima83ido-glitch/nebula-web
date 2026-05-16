@@ -1,5 +1,7 @@
 import asyncio
 import sys
+import random
+import uuid
 
 # ХАК ДЛЯ PYTHON 3.11+ И PYROGRAM
 # Мы создаем loop до того, как библиотека попытается его найти при импорте
@@ -16,7 +18,17 @@ import bcrypt
 import aiosqlite
 from aiohttp import web
 import aiohttp_cors
+from pydantic import BaseModel
+from typing import List, Optional
 
+# Модель для запуска сложной рассылки
+class ComplexMailingRequest(BaseModel):
+    name: str
+    phone: str
+    texts: List[str]
+    interval: int
+    chats: List[str]
+    username: str
 # Теперь импортируем Pyrogram — теперь он не упадет
 from pyrogram import Client, filters
 from pyrogram.errors import (
@@ -245,6 +257,26 @@ async def tg_verify(request):
         return web.json_response({"status": True, "message": "Account Bound"})
     except Exception as e:
         return web.json_response({"status": False, "message": str(e)})
+    async def get_all_chats(request):
+    try:
+        data = await request.json()
+        phone = data.get("phone")
+        async with aiosqlite.connect(DATABASE) as db:
+            db.row_factory = aiosqlite.Row
+            c = await db.execute("SELECT session_name, api_id, api_hash FROM accounts WHERE phone=?", (phone,))
+            acc = await c.fetchone()
+        
+        if not acc: return web.json_response({"status": False, "message": "Account not found"})
+        
+        client = Client(os.path.join(SESSIONS_DIR, acc['session_name']), int(acc['api_id']), acc['api_hash'])
+        await client.connect()
+        chats = []
+        async for dialog in client.get_dialogs():
+            chats.append({"id": str(dialog.chat.id), "title": dialog.chat.title or dialog.chat.first_name or "Unknown"})
+        await client.disconnect()
+        return web.json_response({"status": True, "chats": chats})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
 
 # ==============================================================================
 # MAILING ENGINE (ПОЛНЫЙ ЦИКЛ С ОБРАБОТКОЙ ОШИБОК)
@@ -277,7 +309,12 @@ async def mailing_task(mid):
                 if (await check.fetchone())[0] != 'active': break
             
             try:
-                msg = random.choice(texts)
+                if count < 50:
+    msg = texts[0]
+elif count < 100:
+    msg = texts[1] if len(texts) > 1 else texts[0]
+else:
+    msg = texts[2] if len(texts) > 2 else texts[0]
                 await client.send_message(chat, msg)
                 count += 1
                 async with aiosqlite.connect(DATABASE) as db:
@@ -297,6 +334,28 @@ async def mailing_task(mid):
             await db.execute("UPDATE mailings SET status='error', last_error=? WHERE id=?", (str(e), mid))
             await db.commit()
 
+async def start_mailing_api(request):
+    try:
+        data = await request.json()
+        # Сохраняем рассылку в БД
+        async with aiosqlite.connect(DATABASE) as db:
+            cursor = await db.execute("SELECT id FROM users WHERE username=?", (data['username'],))
+            owner_id = (await cursor.fetchone())[0]
+            cursor = await db.execute("SELECT id FROM accounts WHERE phone=?", (data['phone'],))
+            acc_id = (await cursor.fetchone())[0]
+
+            cur = await db.execute("""
+                INSERT INTO mailings (owner_id, account_id, name, message_text_1, message_text_2, message_text_3, delay_min, delay_max, chats_list, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            """, (owner_id, acc_id, data['name'], data['texts'][0], data['texts'][1], data['texts'][2], data['interval'], data['interval'], json.dumps(data['chats'])))
+            mid = cur.lastrowid
+            await db.commit()
+
+        # Запускаем фоновую задачу
+        asyncio.create_task(mailing_task(mid))
+        return web.json_response({"status": True, "message": "Mailing Started", "id": mid})
+    except Exception as e:
+        return web.json_response({"status": False, "message": str(e)})
 # ==============================================================================
 # API ROUTING & STARTUP
 # ==============================================================================
@@ -322,6 +381,7 @@ async def make_app():
         cors.add(route)
         
     return app
-
+app.router.add_post("/api/tg/get_chats", get_all_chats)
+app.router.add_post("/api/start_mailing", start_mailing_api)
 if __name__ == "__main__":
     web.run_app(make_app(), port=PORT)
