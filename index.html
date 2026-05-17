@@ -175,9 +175,9 @@ Remember me
 
         <div class="section-card">
             <div class="section-header">🚀 РАССЫЛКИ</div>
-            <button class="menu-btn">
-                📊 ВСЕ РАССЫЛКИ
-            </button>
+            <button class="menu-btn" onclick="loadMailings()">
+    📊 ВСЕ РАССЫЛКИ
+</button>
         </div>
     </div>
     
@@ -277,20 +277,41 @@ Remember me
 
 </div>
 
+<div id="mailingsPage" class="page">
+    <div class="container">
+        <button class="menu-btn" onclick="openPage('dashboard')">🏠 Назад</button>
+        <div class="section-card">
+            <div class="section-header">🚀 МОИ РАССЫЛКИ</div>
+            <div id="mailingsList"></div>
+        </div>
+    </div>
+</div>
+
 <script>
 
 const API = "https://nebula-web-nwdf.onrender.com"
 let currentUser = ""
 let auth_id = ""
 
-function openPage(id){
+function openPage(pageId) {
+    // 1. Убираем класс 'active' у всех страниц (скрываем их)
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active');
+    });
 
-document.querySelectorAll(".page").forEach(x=>{
-x.classList.remove("active")
-})
+    // 2. Находим нужную страницу по ID
+    const target = document.getElementById(pageId);
 
-document.getElementById(id).classList.add("active")
+    // 3. Если страница нашлась — делаем ее видимой
+    if (target) {
+        target.classList.add('active');
+    }
 
+    // 4. Скроллим в самый верх (плавно), чтобы страница не открылась "снизу"
+    window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+    });
 }
 
 async function login(){
