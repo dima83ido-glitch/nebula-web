@@ -44,10 +44,41 @@ active_mailings = {}
 async def index(request):
     return web.FileResponse('index.html')
 
+
 async def create_app():
-    # ...
-    app.router.add_get("/", index) # Добавь эту строку!
-    # ... остальные роуты
+    await init_db()
+    app = web.Application()
+
+    app.router.add_get("/", index)
+
+    # СТРОГО ДОБАВЬ ЭТО: чтобы сайт открывался
+    app.router.add_get("/", index) 
+
+    # Проверь, чтобы эти строки были именно такими:
+    app.router.add_post("/mailings", list_mailings)
+    app.router.add_post("/toggle_mailing", toggle_mailing)
+    app.router.add_post("/create_mailing", create_mailing)
+    app.router.add_post("/delete_mailing", delete_mailing)
+    app.router.add_post("/accounts", list_accounts) # Проверь этот путь!
+    
+    app.router.add_post("/register", register)
+    app.router.add_post("/login", login)
+    app.router.add_post("/send_code", send_code)
+    app.router.add_post("/verify_code", verify_code)
+    app.router.add_post("/verify_password", verify_password)
+
+    cors = aiohttp_cors.setup(app, defaults={
+        "*": aiohttp_cors.ResourceOptions(
+            allow_headers="*",
+            allow_methods="*",
+            allow_credentials=True
+        )
+    })
+    for route in list(app.router.routes()):
+        cors.add(route)
+
+    app.on_startup.append(start_background_tasks)
+    return app
 
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
