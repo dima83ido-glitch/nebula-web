@@ -128,39 +128,49 @@ function openPage(pageId) {
     document.getElementById(pageId).classList.add('active');
 }
 
-// ==================== AUTH ====================
-// ==================== AUTH ====================
+// ==================== LOGIN ====================
 async function login() {
-    const username = document.getElementById("loginUsername").value.trim();
-    const password = document.getElementById("loginPassword").value.trim();
+    const usernameField = document.getElementById("loginUsername");
+    const passwordField = document.getElementById("loginPassword");
+
+    const username = usernameField.value.trim();
+    const password = passwordField.value.trim();
 
     if (!username || !password) {
         return alert("Введите логин и пароль!");
     }
 
     try {
+        console.log("Отправляем запрос на:", API + "/login");
+
         const res = await fetch(API + "/login", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-                username, 
-                password, 
-                remember: document.getElementById("remember").checked 
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password,
+                remember: document.getElementById("remember").checked
             })
         });
 
-        const d = await res.json();
+        console.log("Статус ответа:", res.status);
 
-        if (d.status) {
+        const d = await res.json();
+        console.log("Ответ от сервера:", d);
+
+        if (d.status === true) {
             currentUser = username;
             document.getElementById("nickname").innerText = username;
             openPage("dashboard");
+            alert("Вход выполнен успешно!");
         } else {
-            alert(d.message || "Ошибка входа");
+            alert(d.message || "Неверный логин или пароль");
         }
     } catch (err) {
-        console.error(err);
-        alert("Не удалось подключиться к серверу. Проверьте адрес API и что бэкенд запущен.");
+        console.error("Ошибка:", err);
+        alert("Ошибка подключения к серверу.\n\nУбедись, что API адрес правильный.");
     }
 }
 // ==================== ADD ACCOUNT ====================
