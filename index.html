@@ -139,6 +139,11 @@ input, select {
 <input id="loginUsername" placeholder="Username">
 <input id="loginPassword" type="password" placeholder="Password">
 
+if (успешно) {
+    openPage('dashboard');
+    loadAccounts(); // Загружаем аккаунты только ТУТ
+}
+
 <label>
 <input type="checkbox" id="remember">
 Remember me
@@ -545,10 +550,7 @@ async function login() {
 
     // Тут твой запрос к серверу...
     // Если сервер ответил "ок":
-    openPage('dashboard');
-}
 
-loadAccounts()
 
 }
 
