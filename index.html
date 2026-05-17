@@ -467,29 +467,40 @@ alert(d.message)
 
 }
 
-async function loadAccounts(){
+async function loadAccounts() {
+    openPage("accountsPage");
+    const listDiv = document.getElementById("accountsList");
+    listDiv.innerHTML = "Загрузка..."; 
 
-openPage("accountsPage")
+    try {
+        const r = await fetch(API + "/accounts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: currentUser })
+        });
+        const d = await r.json();
 
-const r = await fetch(API+"/accounts",{
-
-method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify({
-username:currentUser
-})
-
-})
-
-const d = await r.json()
-
-let html=""
-
-d.accounts.forEach(acc=>{
+        if (d.status) {
+            if (!d.accounts || d.accounts.length === 0) {
+                listDiv.innerHTML = "<div style='text-align:center; padding:20px; opacity:0.6;'>У вас пока нет аккаунтов</div>";
+            } else {
+                let html = "";
+                d.accounts.forEach(acc => {
+                    html += `
+                    <div class="card acc" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                        <div>📱 ${acc.phone}</div>
+                        <button onclick="deleteAccount(${acc.id})" style="color:#f87171; background:none; border:none; cursor:pointer;">Удалить</button>
+                    </div>`;
+                });
+                listDiv.innerHTML = html;
+            }
+        } else {
+            alert(d.message);
+        }
+    } catch (e) {
+        listDiv.innerHTML = "Ошибка связи с сервером";
+    }
+}
 
 html+=`
 <div class="card acc">
