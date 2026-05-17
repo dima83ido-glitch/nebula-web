@@ -86,8 +86,8 @@ async def get_user(username):
 async def register(request):
     try:
         data = await request.json()
-        username = data["username"]
-        password = data["password"]
+        username = data["Имя пользователя"]
+        password = data["Пароль"]
         async with aiosqlite.connect(DATABASE) as db:
             if await (await db.execute("SELECT * FROM users WHERE username=?", (username,))).fetchone():
                 return json_response(False, "Пользователь уже существует")
@@ -101,9 +101,9 @@ async def register(request):
 async def login(request):
     try:
         data = await request.json()
-        username = data["username"]
-        password = data["password"]
-        remember = data.get("remember", False)
+        username = data["Имя пользователя"]
+        password = data["Пароль"]
+        remember = data.get("Запомнить", False)
 
         user = await get_user(username)
         if not user or not bcrypt.checkpw(password.encode(), user[2].encode()):
@@ -189,7 +189,7 @@ async def save_account(auth, tg_username):
 async def list_accounts(request):
     try:
         data = await request.json()
-        user = await get_user(data["username"])
+        user = await get_user(data["Имя пользователя"])
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT id, phone FROM accounts WHERE owner_id=?", (user[0],))
             rows = await cursor.fetchall()
