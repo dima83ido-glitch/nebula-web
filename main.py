@@ -41,6 +41,14 @@ active_mailings = {}
 # DATABASE
 # =========================
 
+async def index(request):
+    return web.FileResponse('index.html')
+
+async def create_app():
+    # ...
+    app.router.add_get("/", index) # Добавь эту строку!
+    # ... остальные роуты
+
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
 
