@@ -756,6 +756,11 @@ async def create_app():
 
     app = web.Application()
 
+    app.router.add_post("/mailings", list_mailings)
+    app.router.add_post("/toggle_mailing", toggle_mailing)
+    app.router.add_post("/create_mailing", create_mailing)
+    app.router.add_post("/delete_mailing", delete_mailing)
+
     app.router.add_post("/register", register)
     app.router.add_post("/login", login)
 
