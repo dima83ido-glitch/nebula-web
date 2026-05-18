@@ -42,13 +42,13 @@ async def create_admin():
 
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
-        # Настройки для стабильности
+        # Настройки SQLite
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
         await db.execute("PRAGMA cache_size = -64000;")
         await db.execute("PRAGMA synchronous = NORMAL;")
 
-        # Таблицы
+        # Создание таблиц
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -92,9 +92,22 @@ async def init_db():
         await db.commit()
 
     print("✅ База данных инициализирована")
-    await create_admin()
+    await create_admin()   # ← Важно: вызываем после commit
 
-
+async def create_admin():
+    async with aiosqlite.connect(DATABASE) as db:
+        username = "admin"
+        password = "admin123"
+        
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        await db.execute("""
+            INSERT OR REPLACE INTO users (username, password, role)
+            VALUES (?, ?, 'admin')
+        """, (username, hashed))
+        await db.commit()
+        
+        print(f"✅ АДМИН СОЗДАН → Логин: {username} | Пароль: {password}")
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
     return web.json_response({"status": status, "message": message, **kwargs})
