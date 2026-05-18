@@ -99,17 +99,13 @@
         <button class="back-btn" onclick="openPage('mailingsPage')">← Назад</button>
         <h3 id="mailingTitle">Новая рассылка</h3>
         
-        <input id="m_id" type="hidden">
         <input id="m_name" placeholder="Название рассылки">
         <textarea id="m_text1" placeholder="Текст 1"></textarea>
         <textarea id="m_text2" placeholder="Текст 2 (опционально)"></textarea>
         <textarea id="m_text3" placeholder="Текст 3 (опционально)"></textarea>
         <input id="m_interval" type="number" value="3" placeholder="Интервал (секунды)">
 
-        <select id="m_account" onchange="loadChatsForMailing()">
-            <option value="">Выберите аккаунт</option>
-        </select>
-        
+        <select id="m_account" onchange="loadChatsForMailing()"></select>
         <button class="menu-btn" onclick="selectAllChats()">Выбрать все чаты</button>
         
         <div id="chatsList"></div>
@@ -135,7 +131,6 @@ function openPage(pageId) {
 async function login() {
     const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
-
     if (!username || !password) return alert("Введите логин и пароль!");
 
     try {
@@ -159,19 +154,123 @@ async function login() {
 }
 
 // ==================== ADD ACCOUNT ====================
-async function sendCode() { /* ... твой код ... */ }
-async function verifyCode() { /* ... */ }
-async function verifyPassword() { /* ... */ }
+async function sendCode() {
+    const res = await fetch(API + "/send_code", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            username: currentUser,
+            phone: document.getElementById("phone").value.trim(),
+            api_id: document.getElementById("api_id").value.trim(),
+            api_hash: document.getElementById("api_hash").value.trim()
+        })
+    });
+    const d = await res.json();
+    if (d.status) {
+        auth_id = d.auth_id;
+        document.getElementById("codeBlock").style.display = "block";
+    } else alert(d.message);
+}
+
+async function verifyCode() {
+    const res = await fetch(API + "/verify_code", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({auth_id, code: document.getElementById("code").value.trim()})
+    });
+    const d = await res.json();
+    if (d.need_password) document.getElementById("passwordBlock").style.display = "block";
+    else if (d.status) { alert("Аккаунт добавлен!"); openPage("dashboard"); }
+    else alert(d.message);
+}
+
+async function verifyPassword() {
+    const res = await fetch(API + "/verify_password", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({auth_id, password: document.getElementById("password2fa").value.trim()})
+    });
+    const d = await res.json();
+    if (d.status) { alert("Аккаунт добавлен!"); openPage("dashboard"); }
+    else alert(d.message);
+}
 
 // ==================== ACCOUNTS ====================
-async function loadAccounts() { /* ... */ }
-async function deleteAccount(id) { /* ... */ }
+async function loadAccounts() {
+    openPage("accountsPage");
+    try {
+        const res = await fetch(API + "/accounts", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username: currentUser})
+        });
+        const d = await res.json();
+        const list = document.getElementById("accountsList");
+
+        if (!d.accounts || d.accounts.length === 0) {
+            list.innerHTML = `<div class="empty">Нет добавленных аккаунтов</div>`;
+            return;
+        }
+
+        let html = "";
+        d.accounts.forEach(acc => {
+            html += `<div class="section-card"><strong>${acc.phone}</strong> 
+                     <button onclick="deleteAccount(${acc.id})" style="float:right;color:#f87171">Удалить</button></div>`;
+        });
+        list.innerHTML = html;
+    } catch(e) {
+        document.getElementById("accountsList").innerHTML = `<div class="empty">Ошибка загрузки</div>`;
+    }
+}
+
+async function deleteAccount(id) {
+    if (confirm("Удалить аккаунт?")) {
+        await fetch(API + "/delete_account", {
+            method:"POST", 
+            headers:{"Content-Type":"application/json"}, 
+            body:JSON.stringify({account_id:id})
+        });
+        loadAccounts();
+    }
+}
 
 // ==================== MAILINGS ====================
-async function loadMailings() { /* ... */ }
-async function toggleMailing(id, status) { /* ... */ }
-async function deleteMailing(id) { /* ... */ }
-async function editMailing(id) { /* ... */ }
+async function loadMailings() {
+    openPage("mailingsPage");
+    try {
+        const res = await fetch(API + "/mailings", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username: currentUser})
+        });
+        const d = await res.json();
+        const container = document.getElementById("mailingsList");
+
+        if (!d.mailings || d.mailings.length === 0) {
+            container.innerHTML = `<div class="empty">Пока нет рассылок</div>`;
+            return;
+        }
+
+        let html = "";
+        d.mailings.forEach(m => {
+            const isActive = m.status === "active";
+            html += `
+            <div class="section-card">
+                <strong>${m.name}</strong><br>
+                <small>Аккаунт: ${m.phone} | Отправлено: ${m.sent}</small><br><br>
+                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')" 
+                        style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
+                    ${isActive ? '⏹ Остановить' : '▶ Запустить'}
+                </button>
+                <button onclick="editMailing(${m.id})" style="background:#eab308; padding:8px 14px; margin-left:8px;">Изменить</button>
+                <button onclick="deleteMailing(${m.id})" style="background:#ef4444; padding:8px 14px; margin-left:8px;">Удалить</button>
+            </div>`;
+        });
+        container.innerHTML = html;
+    } catch(e) {
+        document.getElementById("mailingsList").innerHTML = `<div class="empty">Ошибка загрузки</div>`;
+    }
+}
 
 // ==================== CREATE/EDIT MAILING ====================
 async function loadAccountsForMailing() {
@@ -185,16 +284,11 @@ async function loadAccountsForMailing() {
             body: JSON.stringify({username: currentUser})
         });
         const d = await res.json();
-        
         select.innerHTML = '<option value="">Выберите аккаунт</option>';
-        if (d.accounts && d.accounts.length > 0) {
-            d.accounts.forEach(acc => {
-                select.innerHTML += `<option value="${acc.id}">${acc.phone}</option>`;
-            });
-        } else {
-            select.innerHTML += `<option value="">Нет аккаунтов</option>`;
-        }
-    } catch (e) {
+        d.accounts?.forEach(acc => {
+            select.innerHTML += `<option value="${acc.id}">${acc.phone}</option>`;
+        });
+    } catch(e) {
         select.innerHTML = '<option value="">Ошибка загрузки</option>';
     }
 }
@@ -276,34 +370,26 @@ async function saveMailing() {
     const url = currentEditId ? "/update_mailing" : "/create_mailing";
     if (currentEditId) payload.id = currentEditId;
 
-    try {
-        const res = await fetch(API + url, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify(payload)
-        });
-        const d = await res.json();
+    const res = await fetch(API + url, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(payload)
+    });
+    const d = await res.json();
 
-        if (d.status) {
-            alert(currentEditId ? "Рассылка обновлена!" : "Рассылка создана!");
-            currentEditId = null;
-            openPage("mailingsPage");
-            loadMailings();
-        } else {
-            alert(d.message || "Ошибка");
-        }
-    } catch (e) {
-        alert("Ошибка соединения");
-    }
+    if (d.status) {
+        alert(currentEditId ? "Рассылка обновлена!" : "Рассылка создана!");
+        currentEditId = null;
+        openPage("mailingsPage");
+        loadMailings();
+    } else alert(d.message || "Ошибка");
 }
 
 // Инициализация
 document.addEventListener("DOMContentLoaded", () => {
     const createPage = document.getElementById("createMailingPage");
     createPage.addEventListener('click', () => {
-        if (createPage.classList.contains('active')) {
-            loadAccountsForMailing();
-        }
+        if (createPage.classList.contains('active')) loadAccountsForMailing();
     });
 });
 </script>
