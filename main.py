@@ -281,31 +281,34 @@ async def get_chats(request):
         data = await request.json()
         account_id = data["account_id"]
         
-        # Улучшенная работа с SQLite
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("PRAGMA busy_timeout = 10000;")
+            await db.execute("PRAGMA busy_timeout = 15000;")
             cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
             if not acc:
                 return json_response(False, "Аккаунт не найден")
 
+        # Подключаемся к Telegram
         client = Client(f"sessions/{acc[6]}", api_id=int(acc[3]), api_hash=acc[4])
         await client.connect()
 
         chats = []
-        async for dialog in client.get_dialogs(limit=20000):
+        async for dialog in client.get_dialogs(limit=20000):   # ← 20 000 чатов
             if dialog.chat.type in ["group", "supergroup", "channel", "private"]:
                 chats.append({
                     "id": str(dialog.chat.id),
-                    "title": dialog.chat.title or dialog.chat.first_name or dialog.chat.username or "Без названия"
+                    "title": dialog.chat.title or dialog.chat.first_name or 
+                            dialog.chat.username or f"ID: {dialog.chat.id}"
                 })
 
         await client.disconnect()
-        print(f"Успешно загружено {len(chats)} чатов")
+
+        print(f"✅ Загружено {len(chats)} чатов для аккаунта {acc[2]}")
         return json_response(True, chats=chats)
+
     except Exception as e:
-        print("get_chats error:", str(e))
-        return json_response(False, "Ошибка загрузки чатов. Попробуйте позже.")
+        print("get_chats CRITICAL ERROR:", str(e))
+        return json_response(False, f"Ошибка: {str(e)}")
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
