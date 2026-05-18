@@ -26,6 +26,13 @@ active_mailings = {}
 # ========================= DATABASE =========================
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
+        # === Важные настройки для Render (решает database is locked) ===
+        await db.execute("PRAGMA journal_mode = WAL;")
+        await db.execute("PRAGMA busy_timeout = 30000;")
+        await db.execute("PRAGMA cache_size = -64000;")   # Увеличение кэша
+        await db.execute("PRAGMA synchronous = NORMAL;")
+
+        # Создание таблиц
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,6 +42,7 @@ async def init_db():
             remember_token TEXT
         )
         """)
+
         await db.execute("""
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +55,7 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
+
         await db.execute("""
         CREATE TABLE IF NOT EXISTS mailings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,25 +65,17 @@ async def init_db():
             text1 TEXT,
             text2 TEXT,
             text3 TEXT,
-            interval_seconds INTEGER,
-            chats TEXT,
+            interval INTEGER DEFAULT 3,
+            chats TEXT,           -- JSON строка
             status TEXT DEFAULT 'stopped',
-            sent_count INTEGER DEFAULT 0
+            sent INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-        await db.commit()
-    await create_admin()
 
-async def create_admin():
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM users WHERE username=?", ("admin",))
-        if not await cursor.fetchone():
-            hashed = bcrypt.hashpw("orion123".encode(), bcrypt.gensalt()).decode()
-            await db.execute(
-                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                ("admin", hashed, "admin")
-            )
-            await db.commit()
+        await db.commit()
+
+    print("✅ База данных инициализирована (WAL + busy_timeout)")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
@@ -279,35 +280,62 @@ async def delete_account(request):
 async def get_chats(request):
     try:
         data = await request.json()
-        account_id = data["account_id"]
+        account_id = int(data.get("account_id"))
         
+        if not account_id:
+            return json_response(False, "Не передан ID аккаунта")
+
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("PRAGMA busy_timeout = 15000;")
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+            await db.execute("PRAGMA busy_timeout = 30000;")
+            await db.execute("PRAGMA journal_mode = WAL;")
+            
+            cursor = await db.execute("""
+                SELECT id, phone, api_id, api_hash, proxy, session_name 
+                FROM accounts WHERE id=?
+            """, (account_id,))
             acc = await cursor.fetchone()
+            
             if not acc:
                 return json_response(False, "Аккаунт не найден")
 
-        # Подключаемся к Telegram
-        client = Client(f"sessions/{acc[6]}", api_id=int(acc[3]), api_hash=acc[4])
+        print(f"🔄 Начинаем загрузку чатов для: {acc[1]} (ID: {account_id})")
+
+        # Подключаемся к Pyrogram
+        client = Client(
+            f"sessions/{acc[5]}", 
+            api_id=int(acc[2]), 
+            api_hash=acc[3]
+        )
+
         await client.connect()
+        print("✅ Pyrogram клиент подключён успешно")
 
         chats = []
-        async for dialog in client.get_dialogs(limit=20000):   # ← 20 000 чатов
-            if dialog.chat.type in ["group", "supergroup", "channel", "private"]:
+        count = 0
+
+        async for dialog in client.get_dialogs(limit=20000):
+            count += 1
+            chat = dialog.chat
+            
+            if chat.type in ["group", "supergroup", "channel", "private"]:
+                title = chat.title or chat.first_name or chat.username or f"ID_{chat.id}"
                 chats.append({
-                    "id": str(dialog.chat.id),
-                    "title": dialog.chat.title or dialog.chat.first_name or 
-                            dialog.chat.username or f"ID: {dialog.chat.id}"
+                    "id": str(chat.id),
+                    "title": title
                 })
+
+            if count % 400 == 0:
+                print(f"📊 Загружено уже {count} диалогов...")
 
         await client.disconnect()
 
-        print(f"✅ Загружено {len(chats)} чатов для аккаунта {acc[2]}")
+        print(f"✅ УСПЕШНО ЗАГРУЖЕНО {len(chats)} чатов для аккаунта {acc[1]}")
         return json_response(True, chats=chats)
 
     except Exception as e:
-        print("get_chats CRITICAL ERROR:", str(e))
+        print(f"❌ get_chats CRITICAL ERROR: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return json_response(False, f"Ошибка: {str(e)}")
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
