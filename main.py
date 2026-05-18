@@ -13,8 +13,8 @@ from pyrogram.errors import SessionPasswordNeeded, FloodWait
 
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
-MAX_ACCOUNTS = 50      # Максимум аккаунтов на пользователя
-MAX_CHATS = 20000      # Максимум чатов на одну рассылку
+MAX_ACCOUNTS = 50      # Максимум аккаунтов
+MAX_CHATS = 20000      # Максимум чатов в одну рассылку
 
 os.makedirs("sessions", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
@@ -139,7 +139,7 @@ async def send_code(request):
         if not user:
             return json_response(False, "Пользователь не найден")
 
-        # Проверка лимита аккаунтов
+        # Проверка лимита
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
@@ -167,7 +167,6 @@ async def send_code(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# verify_code и verify_password оставляем как есть
 async def verify_code(request):
     try:
         data = await request.json()
@@ -276,7 +275,7 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS (20 000) =========================
+# ========================= GET CHATS (до 20к) =========================
 async def get_chats(request):
     try:
         data = await request.json()
@@ -291,28 +290,150 @@ async def get_chats(request):
         await client.connect()
 
         chats = []
-        count = 0
         async for dialog in client.get_dialogs(limit=MAX_CHATS):
             if dialog.chat.type in ["group", "supergroup", "channel", "private"]:
                 chats.append({
                     "id": str(dialog.chat.id),
                     "title": dialog.chat.title or dialog.chat.first_name or dialog.chat.username or "Без названия"
                 })
-                count += 1
-                if count >= MAX_CHATS:
-                    break
 
         await client.disconnect()
-        print(f"Загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
     except Exception as e:
         print("get_chats error:", str(e))
         return json_response(False, str(e))
 
-# ========================= MAILING (остальное без изменений) =========================
-# mailing_worker, create_mailing, list_mailings, delete_mailing, update_mailing, toggle_mailing — оставляем как у тебя
+# ========================= MAILING =========================
+async def mailing_worker(mailing_id):
+    while True:
+        try:
+            async with aiosqlite.connect(DATABASE) as db:
+                cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
+                mailing = await cursor.fetchone()
+                if not mailing or mailing[9] != "active":
+                    await asyncio.sleep(5)
+                    continue
 
-# (Вставь сюда весь свой код mailing_worker и дальше до конца)
+                acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
+                account = await acc_cursor.fetchone()
+
+                client = Client(f"sessions/{account[6]}", api_id=int(account[3]), api_hash=account[4])
+                await client.connect()
+
+                chats = json.loads(mailing[8])
+                texts = [mailing[4], mailing[5], mailing[6]]
+                sent = mailing[10]
+
+                for chat_id in chats:
+                    try:
+                        text = texts[(sent // 50) % 3] or texts[0]
+                        await client.send_message(int(chat_id), text)
+                        sent += 1
+                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
+                        await db.commit()
+                    except FloodWait as e:
+                        await asyncio.sleep(e.value)
+                    except Exception:
+                        pass
+                    await asyncio.sleep(mailing[7])
+
+                await client.disconnect()
+        except Exception:
+            await asyncio.sleep(10)
+
+async def create_mailing(request):
+    try:
+        data = await request.json()
+        user = await get_user(data["username"])
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("""
+                INSERT INTO mailings (owner_id, account_id, name, text1, text2, text3, 
+                                    interval_seconds, chats, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped')
+            """, (user[0], data["account_id"], data["name"], data.get("text1",""), 
+                  data.get("text2",""), data.get("text3",""), 
+                  int(data.get("interval", 60)), json.dumps(data.get("chats", []))))
+            await db.commit()
+        return json_response(True, "Рассылка создана")
+    except Exception as e:
+        print("create_mailing error:", str(e))
+        return json_response(False, str(e))
+
+async def list_mailings(request):
+    try:
+        data = await request.json()
+        user = await get_user(data["username"])
+        async with aiosqlite.connect(DATABASE) as db:
+            cursor = await db.execute("""
+                SELECT m.*, a.phone FROM mailings m 
+                JOIN accounts a ON m.account_id = a.id 
+                WHERE m.owner_id=?
+            """, (user[0],))
+            rows = await cursor.fetchall()
+
+        mailings = []
+        for r in rows:
+            mailings.append({
+                "id": r[0], "name": r[3], "status": r[9], "sent": r[10], "phone": r[11],
+                "text1": r[4], "text2": r[5], "text3": r[6], "interval": r[7],
+                "chats": json.loads(r[8]) if r[8] else []
+            })
+        return json_response(True, mailings=mailings)
+    except Exception as e:
+        print("list_mailings error:", str(e))
+        return json_response(False, str(e))
+
+async def delete_mailing(request):
+    try:
+        data = await request.json()
+        m_id = data["id"]
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("DELETE FROM mailings WHERE id=?", (m_id,))
+            await db.commit()
+        if m_id in active_mailings:
+            active_mailings[m_id].cancel()
+            del active_mailings[m_id]
+        return json_response(True)
+    except Exception as e:
+        return json_response(False, str(e))
+
+async def update_mailing(request):
+    try:
+        data = await request.json()
+        m_id = data["id"]
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("""
+                UPDATE mailings SET name=?, text1=?, text2=?, text3=?, 
+                                   interval_seconds=?, chats=?
+                WHERE id=?
+            """, (data["name"], data.get("text1",""), data.get("text2",""), 
+                  data.get("text3",""), int(data.get("interval",60)), 
+                  json.dumps(data.get("chats",[])), m_id))
+            await db.commit()
+        return json_response(True, "Рассылка обновлена")
+    except Exception as e:
+        return json_response(False, str(e))
+
+async def toggle_mailing(request):
+    try:
+        data = await request.json()
+        m_id = data["id"]
+        new_status = data["status"]
+
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("UPDATE mailings SET status=? WHERE id=?", (new_status, m_id))
+            await db.commit()
+
+        if new_status == "active":
+            if m_id not in active_mailings:
+                active_mailings[m_id] = asyncio.create_task(mailing_worker(m_id))
+        elif m_id in active_mailings:
+            active_mailings[m_id].cancel()
+            del active_mailings[m_id]
+
+        return json_response(True)
+    except Exception as e:
+        return json_response(False, str(e))
 
 # ========================= APP =========================
 async def create_app():
@@ -325,7 +446,7 @@ async def create_app():
         "/send_code": send_code,
         "/verify_code": verify_code,
         "/verify_password": verify_password,
-        "/accounts": list_accounts,           # ← Важно!
+        "/accounts": list_accounts,
         "/delete_account": delete_account,
         "/get_chats": get_chats,
         "/create_mailing": create_mailing,
