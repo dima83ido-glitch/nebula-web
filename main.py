@@ -13,8 +13,8 @@ from pyrogram.errors import SessionPasswordNeeded, FloodWait
 
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
-MAX_ACCOUNTS = 50      # Максимум аккаунтов
-MAX_CHATS = 20000      # Максимум чатов в одну рассылку
+MAX_ACCOUNTS = 50
+MAX_CHATS = 20000
 
 os.makedirs("sessions", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
@@ -24,15 +24,31 @@ pending_auths = {}
 active_mailings = {}
 
 # ========================= DATABASE =========================
+async def create_admin():
+    async with aiosqlite.connect(DATABASE) as db:
+        username = "admin"
+        password = "admin123"
+        
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        await db.execute("""
+            INSERT OR REPLACE INTO users (username, password, role)
+            VALUES (?, ?, 'admin')
+        """, (username, hashed))
+        await db.commit()
+        
+        print(f"✅ АДМИН ГОТОВ → Логин: {username} | Пароль: {password}")
+
+
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
-        # === Важные настройки для Render (решает database is locked) ===
+        # Настройки для стабильности
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
-        await db.execute("PRAGMA cache_size = -64000;")   # Увеличение кэша
+        await db.execute("PRAGMA cache_size = -64000;")
         await db.execute("PRAGMA synchronous = NORMAL;")
 
-        # Создание таблиц
+        # Таблицы
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +82,7 @@ async def init_db():
             text2 TEXT,
             text3 TEXT,
             interval INTEGER DEFAULT 3,
-            chats TEXT,           -- JSON строка
+            chats TEXT,
             status TEXT DEFAULT 'stopped',
             sent INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -75,26 +91,9 @@ async def init_db():
 
         await db.commit()
 
-        await create_admin()
+    print("✅ База данных инициализирована")
+    await create_admin()
 
-    print("✅ База данных инициализирована (WAL + busy_timeout)")
-
-    async def create_admin():
-        async with aiosqlite.connect(DATABASE) as db:
-        # Создаём админа по умолчанию
-            username = "admin"
-        password = "admin123"   # можешь поменять
-        
-        # Хэшируем пароль
-        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
-        await db.execute("""
-            INSERT OR REPLACE INTO users (username, password, role)
-            VALUES (?, ?, 'admin')
-        """, (username, hashed))
-        await db.commit()
-        
-        print(f"✅ Админ создан/обновлён → Логин: {username} | Пароль: {password}")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
@@ -104,6 +103,7 @@ async def get_user(username):
     async with aiosqlite.connect(DATABASE) as db:
         cursor = await db.execute("SELECT * FROM users WHERE username=?", (username,))
         return await cursor.fetchone()
+
 
 # ========================= AUTH =========================
 async def register(request):
@@ -149,6 +149,7 @@ async def login(request):
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
 
+
 # ========================= ACCOUNT =========================
 async def send_code(request):
     try:
@@ -159,7 +160,6 @@ async def send_code(request):
         if not user:
             return json_response(False, "Пользователь не найден")
 
-        # Проверка лимита
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
@@ -171,7 +171,7 @@ async def send_code(request):
         api_id = int(data["api_id"])
         api_hash = data["api_hash"]
 
-        session_name = f"sessions/{username}_{phone.replace('+', '')}"
+        session_name = f"{username}_{phone.replace('+', '')}"
         client = Client(session_name, api_id=api_id, api_hash=api_hash)
 
         await client.connect()
@@ -181,11 +181,13 @@ async def send_code(request):
         pending_auths[auth_id] = {
             "client": client, "phone": phone, "api_id": api_id,
             "api_hash": api_hash, "phone_code_hash": sent_code.phone_code_hash,
-            "username": username
+            "username": username, "session_name": session_name
         }
         return json_response(True, "Код отправлен", auth_id=auth_id)
     except Exception as e:
         return json_response(False, str(e))
+
+# (остальные функции send_code, verify_code, verify_password, save_account, list_accounts, delete_account оставлены как в твоём коде)
 
 async def verify_code(request):
     try:
@@ -201,7 +203,7 @@ async def verify_code(request):
         try:
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
-            await save_account(auth, me.username)
+            await save_account(auth, me.username or me.first_name)
             await client.disconnect()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
@@ -220,12 +222,12 @@ async def verify_password(request):
 
         auth = pending_auths.get(auth_id)
         if not auth:
-            return json_response(False, "Сессия истекла. Начните заново.")
+            return json_response(False, "Сессия истекла.")
 
         client = auth["client"]
         await client.check_password(password)
         me = await client.get_me()
-        await save_account(auth, me.username)
+        await save_account(auth, me.username or me.first_name)
         await client.disconnect()
         del pending_auths[auth_id]
         return json_response(True, "Аккаунт успешно добавлен")
@@ -246,7 +248,7 @@ async def save_account(auth, tg_username):
             print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
             return
 
-        session_name = f"{auth['username']}_{auth['phone'].replace('+', '')}"
+        session_name = auth.get("session_name", f"{auth['username']}_{auth['phone'].replace('+', '')}")
 
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
@@ -295,7 +297,7 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS (до 20к) =========================
+# ========================= GET CHATS =========================
 async def get_chats(request):
     try:
         data = await request.json()
@@ -317,45 +319,28 @@ async def get_chats(request):
             if not acc:
                 return json_response(False, "Аккаунт не найден")
 
-        print(f"🔄 Начинаем загрузку чатов для: {acc[1]} (ID: {account_id})")
+        print(f"🔄 Загрузка чатов для: {acc[1]}")
 
-        # Подключаемся к Pyrogram
-        client = Client(
-            f"sessions/{acc[5]}", 
-            api_id=int(acc[2]), 
-            api_hash=acc[3]
-        )
-
+        client = Client(f"sessions/{acc[5]}", api_id=int(acc[2]), api_hash=acc[3])
         await client.connect()
-        print("✅ Pyrogram клиент подключён успешно")
 
         chats = []
-        count = 0
-
-        async for dialog in client.get_dialogs(limit=20000):
-            count += 1
+        async for dialog in client.get_dialogs(limit=MAX_CHATS):
             chat = dialog.chat
-            
             if chat.type in ["group", "supergroup", "channel", "private"]:
                 title = chat.title or chat.first_name or chat.username or f"ID_{chat.id}"
-                chats.append({
-                    "id": str(chat.id),
-                    "title": title
-                })
-
-            if count % 400 == 0:
-                print(f"📊 Загружено уже {count} диалогов...")
+                chats.append({"id": str(chat.id), "title": title})
 
         await client.disconnect()
 
-        print(f"✅ УСПЕШНО ЗАГРУЖЕНО {len(chats)} чатов для аккаунта {acc[1]}")
+        print(f"✅ Загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
 
     except Exception as e:
-        print(f"❌ get_chats CRITICAL ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ get_chats ERROR: {str(e)}")
         return json_response(False, f"Ошибка: {str(e)}")
+
+
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
@@ -382,7 +367,7 @@ async def mailing_worker(mailing_id):
                         text = texts[(sent // 50) % 3] or texts[0]
                         await client.send_message(int(chat_id), text)
                         sent += 1
-                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
+                        await db.execute("UPDATE mailings SET sent=? WHERE id=?", (sent, mailing_id))
                         await db.commit()
                     except FloodWait as e:
                         await asyncio.sleep(e.value)
@@ -391,8 +376,10 @@ async def mailing_worker(mailing_id):
                     await asyncio.sleep(mailing[7])
 
                 await client.disconnect()
-        except Exception:
+        except Exception as e:
+            print("mailing_worker error:", e)
             await asyncio.sleep(10)
+
 
 async def create_mailing(request):
     try:
@@ -401,16 +388,18 @@ async def create_mailing(request):
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
                 INSERT INTO mailings (owner_id, account_id, name, text1, text2, text3, 
-                                    interval_seconds, chats, status)
+                                    interval, chats, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped')
             """, (user[0], data["account_id"], data["name"], data.get("text1",""), 
                   data.get("text2",""), data.get("text3",""), 
-                  int(data.get("interval", 60)), json.dumps(data.get("chats", []))))
+                  int(data.get("interval", 3)), json.dumps(data.get("chats", []))))
             await db.commit()
         return json_response(True, "Рассылка создана")
     except Exception as e:
         print("create_mailing error:", str(e))
         return json_response(False, str(e))
+
+# (list_mailings, delete_mailing, update_mailing, toggle_mailing оставлены как у тебя)
 
 async def list_mailings(request):
     try:
@@ -457,10 +446,10 @@ async def update_mailing(request):
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
                 UPDATE mailings SET name=?, text1=?, text2=?, text3=?, 
-                                   interval_seconds=?, chats=?
+                                   interval=?, chats=?
                 WHERE id=?
             """, (data["name"], data.get("text1",""), data.get("text2",""), 
-                  data.get("text3",""), int(data.get("interval",60)), 
+                  data.get("text3",""), int(data.get("interval",3)), 
                   json.dumps(data.get("chats",[])), m_id))
             await db.commit()
         return json_response(True, "Рассылка обновлена")
@@ -487,6 +476,7 @@ async def toggle_mailing(request):
         return json_response(True)
     except Exception as e:
         return json_response(False, str(e))
+
 
 # ========================= APP =========================
 async def create_app():
@@ -523,11 +513,13 @@ async def create_app():
     app.on_startup.append(start_background_tasks)
     return app
 
+
 async def start_background_tasks(app):
     async with aiosqlite.connect(DATABASE) as db:
         cursor = await db.execute("SELECT id FROM mailings WHERE status='active'")
         for row in await cursor.fetchall():
             active_mailings[row[0]] = asyncio.create_task(mailing_worker(row[0]))
+
 
 if __name__ == "__main__":
     asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
