@@ -280,7 +280,10 @@ async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
+        
+        # Улучшенная работа с SQLite
         async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("PRAGMA busy_timeout = 10000;")
             cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
             if not acc:
@@ -290,7 +293,7 @@ async def get_chats(request):
         await client.connect()
 
         chats = []
-        async for dialog in client.get_dialogs(limit=MAX_CHATS):
+        async for dialog in client.get_dialogs(limit=20000):
             if dialog.chat.type in ["group", "supergroup", "channel", "private"]:
                 chats.append({
                     "id": str(dialog.chat.id),
@@ -298,11 +301,11 @@ async def get_chats(request):
                 })
 
         await client.disconnect()
+        print(f"Успешно загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
     except Exception as e:
         print("get_chats error:", str(e))
-        return json_response(False, str(e))
-
+        return json_response(False, "Ошибка загрузки чатов. Попробуйте позже.")
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
