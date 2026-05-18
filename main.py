@@ -101,23 +101,38 @@ async def register(request):
 async def login(request):
     try:
         data = await request.json()
-        username = data["Имя пользователя"]
-        password = data["Пароль"]
-        remember = data.get("Запомнить", False)
+        username = data.get("username")
+        password = data.get("password")
+        remember = data.get("remember", False)
+
+        if not username or not password:
+            return json_response(False, "Введите логин и пароль")
 
         user = await get_user(username)
-        if not user or not bcrypt.checkpw(password.encode(), user[2].encode()):
-            return json_response(False, "Неверный логин или пароль")
+        if not user:
+            return json_response(False, "Пользователь не найден")
+
+        if not bcrypt.checkpw(password.encode(), user[2].encode()):
+            return json_response(False, "Неверный пароль")
 
         token = str(uuid.uuid4())
         if remember:
             async with aiosqlite.connect(DATABASE) as db:
-                await db.execute("UPDATE users SET remember_token=? WHERE username=?", (token, username))
+                await db.execute(
+                    "UPDATE users SET remember_token=? WHERE username=?", 
+                    (token, username)
+                )
                 await db.commit()
 
-        return json_response(True, "Успешный вход", token=token, role=user[3])
+        return json_response(
+            True, 
+            "Успешный вход",
+            token=token,
+            role=user[3]
+        )
     except Exception as e:
-        return json_response(False, str(e))
+        print("Login error:", str(e))
+        return json_response(False, "Ошибка сервера")
 
 # ========================= ACCOUNT =========================
 async def send_code(request):
