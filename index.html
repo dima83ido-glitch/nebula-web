@@ -272,10 +272,33 @@ async function loadMailings() {
     }
 }
 
+async function toggleMailing(id, status) {
+    const res = await fetch(API + "/toggle_mailing", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({id, status})
+    });
+    const d = await res.json();
+    if (d.status) loadMailings();
+    else alert("Ошибка");
+}
+
+async function deleteMailing(id) {
+    if (!confirm("Удалить рассылку?")) return;
+    await fetch(API + "/delete_mailing", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({id})});
+    loadMailings();
+}
+
+async function editMailing(id) {
+    currentEditId = id;
+    document.getElementById("mailingTitle").textContent = "Редактирование рассылки";
+    openPage("createMailingPage");
+}
+
 // ==================== CREATE/EDIT MAILING ====================
 async function loadAccountsForMailing() {
     const select = document.getElementById("m_account");
-    select.innerHTML = '<option value="">Загрузка...</option>';
+    select.innerHTML = '<option value="">Загрузка аккаунтов...</option>';
 
     try {
         const res = await fetch(API + "/accounts", {
@@ -284,11 +307,16 @@ async function loadAccountsForMailing() {
             body: JSON.stringify({username: currentUser})
         });
         const d = await res.json();
+        
         select.innerHTML = '<option value="">Выберите аккаунт</option>';
-        d.accounts?.forEach(acc => {
-            select.innerHTML += `<option value="${acc.id}">${acc.phone}</option>`;
-        });
-    } catch(e) {
+        if (d.accounts && d.accounts.length > 0) {
+            d.accounts.forEach(acc => {
+                select.innerHTML += `<option value="${acc.id}">${acc.phone}</option>`;
+            });
+        } else {
+            select.innerHTML += `<option value="">Нет добавленных аккаунтов</option>`;
+        }
+    } catch (e) {
         select.innerHTML = '<option value="">Ошибка загрузки</option>';
     }
 }
@@ -390,7 +418,9 @@ async function saveMailing() {
 document.addEventListener("DOMContentLoaded", () => {
     const createPage = document.getElementById("createMailingPage");
     createPage.addEventListener('click', () => {
-        if (createPage.classList.contains('active')) loadAccountsForMailing();
+        if (createPage.classList.contains('active')) {
+            loadAccountsForMailing();
+        }
     });
 });
 </script>
