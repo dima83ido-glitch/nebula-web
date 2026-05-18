@@ -309,10 +309,11 @@ async function loadChatsForMailing() {
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({account_id: parseInt(accountId)})
         });
+        
         const d = await res.json();
 
-        if (!d.chats || d.chats.length === 0) {
-            chatsList.innerHTML = "<p style='color:#f87171'>Чатов не найдено</p>";
+        if (!d.status || !d.chats || d.chats.length === 0) {
+            chatsList.innerHTML = `<p style="color:#f87171">Чатов не найдено на этом аккаунте</p>`;
             return;
         }
 
@@ -322,7 +323,7 @@ async function loadChatsForMailing() {
         });
         chatsList.innerHTML = html;
     } catch (e) {
-        chatsList.innerHTML = "<p style='color:#f87171'>Ошибка загрузки чатов</p>";
+        chatsList.innerHTML = `<p style="color:#f87171">Ошибка соединения с сервером</p>`;
     }
 }
 
