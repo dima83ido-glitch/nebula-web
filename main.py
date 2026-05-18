@@ -162,35 +162,54 @@ async def send_code(request):
 async def verify_code(request):
     try:
         data = await request.json()
-        auth = pending_auths.get(data["auth_id"])
-        if not auth: return json_response(False, "AUTH NOT FOUND")
+        auth_id = data["auth_id"]
+        code = data["code"]
 
-        await auth["client"].sign_in(auth["phone"], auth["phone_code_hash"], data["code"])
-        me = await auth["client"].get_me()
-        await save_account(auth, me.username)
-        await auth["client"].disconnect()
-        del pending_auths[data["auth_id"]]
-        return json_response(True, "Аккаунт успешно добавлен")
-    except SessionPasswordNeeded:
-        return json_response(True, "Требуется 2FA", need_password=True)
+        auth = pending_auths.get(auth_id)
+        if not auth:
+            return json_response(False, "Сессия авторизации истекла. Начните заново.")
+
+        client = auth["client"]
+        try:
+            await client.sign_in(
+                auth["phone"],
+                auth["phone_code_hash"],
+                code
+            )
+            me = await client.get_me()
+            await save_account(auth, me.username)
+            await client.disconnect()
+            del pending_auths[auth_id]
+            return json_response(True, "Аккаунт успешно добавлен")
+        except SessionPasswordNeeded:
+            return json_response(True, "Требуется 2FA пароль", need_password=True)
+        except Exception as e:
+            return json_response(False, f"Ошибка при входе: {str(e)}")
     except Exception as e:
-        return json_response(False, str(e))
+        return json_response(False, "Ошибка сервера")
 
 async def verify_password(request):
     try:
         data = await request.json()
-        auth = pending_auths.get(data["auth_id"])
-        if not auth: return json_response(False, "AUTH NOT FOUND")
+        auth_id = data["auth_id"]
+        password = data["password"]
 
-        await auth["client"].check_password(data["password"])
-        me = await auth["client"].get_me()
+        auth = pending_auths.get(auth_id)
+        if not auth:
+            return json_response(False, "Сессия авторизации истекла. Начните добавление аккаунта заново.")
+
+        client = auth["client"]
+        await client.check_password(password)
+        
+        me = await client.get_me()
         await save_account(auth, me.username)
-        await auth["client"].disconnect()
-        del pending_auths[data["auth_id"]]
+        await client.disconnect()
+        del pending_auths[auth_id]
+        
         return json_response(True, "Аккаунт успешно добавлен")
     except Exception as e:
-        return json_response(False, str(e))
-
+        return json_response(False, f"Ошибка 2FA: {str(e)}")
+    
 async def save_account(auth, tg_username):
     user = await get_user(auth["username"])
     async with aiosqlite.connect(DATABASE) as db:
