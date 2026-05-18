@@ -75,7 +75,26 @@ async def init_db():
 
         await db.commit()
 
+        await create_admin()
+
     print("✅ База данных инициализирована (WAL + busy_timeout)")
+
+    async def create_admin():
+        async with aiosqlite.connect(DATABASE) as db:
+        # Создаём админа по умолчанию
+            username = "admin"
+        password = "admin123"   # можешь поменять
+        
+        # Хэшируем пароль
+        hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
+        
+        await db.execute("""
+            INSERT OR REPLACE INTO users (username, password, role)
+            VALUES (?, ?, 'admin')
+        """, (username, hashed))
+        await db.commit()
+        
+        print(f"✅ Админ создан/обновлён → Логин: {username} | Пароль: {password}")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
