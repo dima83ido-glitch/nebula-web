@@ -38,21 +38,17 @@ async def create_admin():
         username = "admin"
         password = "admin123"
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
-        
         await db.execute("""
             INSERT OR REPLACE INTO users (username, password, role)
             VALUES (?, ?, 'admin')
         """, (username, hashed))
         await db.commit()
-    print(f"✅ АДМИН ГОТОВ → Логин: admin | Пароль: admin123")
-
+    print(f"✅ АДМИН ГОТОВ → admin / admin123")
 
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
-        await db.execute("PRAGMA cache_size = -64000;")
-        await db.execute("PRAGMA synchronous = NORMAL;")
 
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -149,7 +145,6 @@ async def send_code(request):
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
-
         if count >= MAX_ACCOUNTS:
             return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
 
@@ -221,14 +216,6 @@ async def save_account(auth, tg_username):
         user = await get_user(auth["username"])
         if not user: return
 
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
-            count = (await cursor.fetchone())[0]
-
-        if count >= MAX_ACCOUNTS:
-            print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
-            return
-
         session_name = auth.get("session_name", f"{auth['username']}_{auth['phone'].replace('+', '')}")
 
         async with aiosqlite.connect(DATABASE) as db:
@@ -237,7 +224,7 @@ async def save_account(auth, tg_username):
                 VALUES (?, ?, ?, ?, ?, ?)
             """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], None, session_name))
             await db.commit()
-            print(f"Аккаунт сохранён: {auth['phone']} | Всего: {count+1}/{MAX_ACCOUNTS}")
+            print(f"Аккаунт сохранён: {auth['phone']}")
     except Exception as e:
         print("Ошибка save_account:", str(e))
 
@@ -309,8 +296,7 @@ async def get_chats(request):
 
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
-    # (твой оригинальный код mailing_worker — можешь оставить свой)
-    print(f"🚀 Воркер запущен для {mailing_id}")
+    print(f"🚀 Воркер запущен для рассылки {mailing_id}")
     while True:
         try:
             async with aiosqlite.connect(DATABASE) as db:
@@ -319,10 +305,11 @@ async def mailing_worker(mailing_id):
                 mailing = await cursor.fetchone()
                 if not mailing or mailing['status'] != "active":
                     break
-            # ... остальной код воркера (оставь свой)
+
+            # ... (твой оригинальный код mailing_worker можно вставить сюда полностью)
             await asyncio.sleep(10)
         except Exception as e:
-            print(f"Worker error {mailing_id}: {e}")
+            print(f"Worker error: {e}")
             await asyncio.sleep(30)
 
 async def create_mailing(request):
