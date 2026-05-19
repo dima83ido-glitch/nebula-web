@@ -274,7 +274,7 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS — ИСПРАВЛЕНА ПРОБЛЕМА =========================
+# ========================= GET CHATS — ИСПРАВЛЕНО =========================
 async def get_chats(request):
     try:
         data = await request.json()
@@ -299,10 +299,11 @@ async def get_chats(request):
 
         await client.connect()
         
-        # Прогрев сессии
-        await asyncio.sleep(1)
-        await client.get_dialogs(limit=5)
+        # Прогрев сессии (исправлено)
+        async for _ in client.get_dialogs(limit=10):
+            pass
 
+        # Основная загрузка чатов
         chats = []
         async for dialog in client.get_dialogs(limit=MAX_CHATS):
             chat = dialog.chat
