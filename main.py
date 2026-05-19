@@ -295,11 +295,11 @@ async def get_chats(request):
         session_name = f"sessions/{acc[6]}"
 
         client = Client(
-            session_name=session_name,
+            session_name,
             api_id=int(acc[3]),
             api_hash=acc[4],
             in_memory=False
-        )
+)
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
 
