@@ -28,7 +28,6 @@ async def create_admin():
     async with aiosqlite.connect(DATABASE) as db:
         username = "admin"
         password = "admin123"
-        
         hashed = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
         
         await db.execute("""
@@ -36,19 +35,15 @@ async def create_admin():
             VALUES (?, ?, 'admin')
         """, (username, hashed))
         await db.commit()
-        
-        print(f"✅ АДМИН ГОТОВ → Логин: {username} | Пароль: {password}")
-
+    print(f"✅ АДМИН ГОТОВ → admin / admin123")
 
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
-        # Настройки SQLite
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
         await db.execute("PRAGMA cache_size = -64000;")
         await db.execute("PRAGMA synchronous = NORMAL;")
 
-        # Создание таблиц
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,11 +83,10 @@ async def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """)
-
         await db.commit()
 
     print("✅ База данных инициализирована")
-    await create_admin()   # ← Важно: вызываем после commit
+    await create_admin()
 
 async def create_admin():
     async with aiosqlite.connect(DATABASE) as db:
@@ -108,15 +102,6 @@ async def create_admin():
         await db.commit()
         
         print(f"✅ АДМИН СОЗДАН → Логин: {username} | Пароль: {password}")
-# ========================= HELPERS =========================
-def json_response(status=True, message="", **kwargs):
-    return web.json_response({"status": status, "message": message, **kwargs})
-
-async def get_user(username):
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM users WHERE username=?", (username,))
-        return await cursor.fetchone()
-
 
 # ========================= AUTH =========================
 async def register(request):
@@ -124,8 +109,11 @@ async def register(request):
         data = await request.json()
         username = data.get("username")
         password = data.get("password")
+        if not username or not password:
+            return json_response(False, "Введите логин и пароль")
+        
         async with aiosqlite.connect(DATABASE) as db:
-            if await (await db.execute("SELECT * FROM users WHERE username=?", (username,))).fetchone():
+            if await (await db.execute("SELECT 1 FROM users WHERE username=?", (username,))).fetchone():
                 return json_response(False, "Пользователь уже существует")
             hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
             await db.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
@@ -139,7 +127,6 @@ async def login(request):
         data = await request.json()
         username = data.get("username")
         password = data.get("password")
-        remember = data.get("remember", False)
 
         if not username or not password:
             return json_response(False, "Введите логин и пароль")
@@ -151,17 +138,10 @@ async def login(request):
         if not bcrypt.checkpw(password.encode(), user[2].encode()):
             return json_response(False, "Неверный пароль")
 
-        token = str(uuid.uuid4())
-        if remember:
-            async with aiosqlite.connect(DATABASE) as db:
-                await db.execute("UPDATE users SET remember_token=? WHERE username=?", (token, username))
-                await db.commit()
-
-        return json_response(True, "Успешный вход", token=token, role=user[3])
+        return json_response(True, "Успешный вход", role=user[3])
     except Exception as e:
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
-
 
 # ========================= ACCOUNT =========================
 async def send_code(request):
@@ -315,26 +295,18 @@ async def get_chats(request):
     try:
         data = await request.json()
         account_id = int(data.get("account_id"))
-        
         if not account_id:
             return json_response(False, "Не передан ID аккаунта")
 
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("PRAGMA busy_timeout = 30000;")
             await db.execute("PRAGMA journal_mode = WAL;")
-            
-            cursor = await db.execute("""
-                SELECT id, phone, api_id, api_hash, proxy, session_name 
-                FROM accounts WHERE id=?
-            """, (account_id,))
+            cursor = await db.execute("SELECT phone, api_id, api_hash, session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
-            
             if not acc:
                 return json_response(False, "Аккаунт не найден")
 
-        print(f"🔄 Загрузка чатов для: {acc[1]}")
-
-        client = Client(f"sessions/{acc[5]}", api_id=int(acc[2]), api_hash=acc[3])
+        client = Client(f"sessions/{acc[3]}", api_id=int(acc[1]), api_hash=acc[2])
         await client.connect()
 
         chats = []
@@ -345,13 +317,11 @@ async def get_chats(request):
                 chats.append({"id": str(chat.id), "title": title})
 
         await client.disconnect()
-
         print(f"✅ Загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
-
     except Exception as e:
-        print(f"❌ get_chats ERROR: {str(e)}")
-        return json_response(False, f"Ошибка: {str(e)}")
+        print("get_chats ERROR:", str(e))
+        return json_response(False, "Ошибка загрузки чатов")
 
 
 # ========================= MAILING =========================
