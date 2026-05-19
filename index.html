@@ -23,6 +23,7 @@
     .chat-item.selected { background: #1e3a8a; border-color: #3b82f6; }
     .counter { text-align:center; font-weight:bold; margin:15px 0; color:#60a5fa; }
     .empty { text-align: center; color: #64748b; padding: 40px 20px; font-style: italic; }
+    .loading { color: #60a5fa; text-align: center; padding: 20px; }
 </style>
 </head>
 <body>
@@ -329,7 +330,7 @@ async function loadChatsForMailing() {
     updateCounter();
 
     const chatsList = document.getElementById("chatsList");
-    chatsList.innerHTML = "<p>Загрузка чатов...</p>";
+    chatsList.innerHTML = `<p class="loading">Загрузка чатов с Telegram...</p>`;
 
     try {
         const res = await fetch(API + "/get_chats", {
@@ -340,7 +341,12 @@ async function loadChatsForMailing() {
         
         const d = await res.json();
 
-        if (!d.status || !d.chats || d.chats.length === 0) {
+        if (!d.status) {
+            chatsList.innerHTML = `<p style="color:#f87171">Ошибка: ${d.message || 'Не удалось загрузить чаты'}</p>`;
+            return;
+        }
+
+        if (!d.chats || d.chats.length === 0) {
             chatsList.innerHTML = `<p style="color:#f87171">Чатов не найдено на этом аккаунте</p>`;
             return;
         }
@@ -352,6 +358,7 @@ async function loadChatsForMailing() {
         chatsList.innerHTML = html;
     } catch (e) {
         chatsList.innerHTML = `<p style="color:#f87171">Ошибка соединения с сервером</p>`;
+        console.error(e);
     }
 }
 
@@ -417,11 +424,12 @@ async function saveMailing() {
 // Инициализация
 document.addEventListener("DOMContentLoaded", () => {
     const createPage = document.getElementById("createMailingPage");
-    createPage.addEventListener('click', () => {
+    const observer = new MutationObserver(() => {
         if (createPage.classList.contains('active')) {
             loadAccountsForMailing();
         }
     });
+    observer.observe(createPage, { attributes: true, attributeFilter: ['class'] });
 });
 </script>
 </body>
