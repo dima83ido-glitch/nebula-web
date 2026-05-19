@@ -326,42 +326,76 @@ async def get_chats(request):
 
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
+    print(f"🚀 Воркер запущен для рассылки ID: {mailing_id}")
     while True:
+        client = None
         try:
             async with aiosqlite.connect(DATABASE) as db:
+                db.row_factory = aiosqlite.Row
                 cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
                 mailing = await cursor.fetchone()
-                if not mailing or mailing[9] != "active":
-                    await asyncio.sleep(5)
-                    continue
+                
+                if not mailing or mailing['status'] != "active":
+                    break # Останавливаем воркер, если статус не active
 
-                acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
+                acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing['account_id'],))
                 account = await acc_cursor.fetchone()
+                
+                if not account:
+                    await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
+                    await db.commit()
+                    break
 
-                client = Client(f"sessions/{account[6]}", api_id=int(account[3]), api_hash=account[4])
-                await client.connect()
+            # Подключаем клиент
+            client = Client(f"sessions/{account['session_name']}", 
+                            api_id=int(account['api_id']), 
+                            api_hash=account['api_hash'])
+            await client.connect()
 
-                chats = json.loads(mailing[8])
-                texts = [mailing[4], mailing[5], mailing[6]]
-                sent = mailing[10]
+            chats = json.loads(mailing['chats'])
+            texts = [mailing['text1'], mailing['text2'], mailing['text3']]
+            texts = [t for t in texts if t] # Убираем пустые тексты
+            
+            sent_count = mailing['sent']
 
-                for chat_id in chats:
-                    try:
-                        text = texts[(sent // 50) % 3] or texts[0]
-                        await client.send_message(int(chat_id), text)
-                        sent += 1
-                        await db.execute("UPDATE mailings SET sent=? WHERE id=?", (sent, mailing_id))
+            for chat_id in chats:
+                # Проверяем статус перед каждым сообщением
+                async with aiosqlite.connect(DATABASE) as db:
+                    check = await (await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))).fetchone()
+                    if not check or check[0] != "active":
+                        break
+
+                try:
+                    text = texts[sent_count % len(texts)]
+                    await client.send_message(int(chat_id), text)
+                    sent_count += 1
+                    
+                    async with aiosqlite.connect(DATABASE) as db:
+                        await db.execute("UPDATE mailings SET sent=? WHERE id=?", (sent_count, mailing_id))
                         await db.commit()
-                    except FloodWait as e:
-                        await asyncio.sleep(e.value)
-                    except Exception:
-                        pass
-                    await asyncio.sleep(mailing[7])
+                    
+                    print(f"✅ Отправлено в {chat_id} (Рассылка {mailing_id})")
+                    await asyncio.sleep(mailing['interval'])
+                    
+                except FloodWait as e:
+                    print(f"⏳ FloodWait: ждем {e.value} сек.")
+                    await asyncio.sleep(e.value)
+                except Exception as e:
+                    print(f"⚠️ Ошибка отправки в {chat_id}: {e}")
+                    await asyncio.sleep(1)
 
-                await client.disconnect()
+            # После прохода по всем чатам делаем паузу перед кругом или останавливаем
+            await client.disconnect()
+            async with aiosqlite.connect(DATABASE) as db:
+                await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
+                await db.commit()
+            break
+
         except Exception as e:
-            print("mailing_worker error:", e)
-            await asyncio.sleep(10)
+            print(f"❌ КРИТИЧЕСКАЯ ОШИБКА ВОРКЕРА {mailing_id}: {e}")
+            if client: await client.disconnect()
+            await asyncio.sleep(30) # Пауза при ошибке, чтобы не спамить в логи
+            break
 
 
 async def create_mailing(request):
