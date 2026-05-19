@@ -9,12 +9,12 @@ import aiosqlite
 from aiohttp import web
 import aiohttp_cors
 from pyrogram import Client
-from pyrogram.errors import SessionPasswordNeeded, FloodWait
+from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered
 
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
-MAX_ACCOUNTS = 50      # Максимум аккаунтов
-MAX_CHATS = 20000      # Максимум чатов в одну рассылку
+MAX_ACCOUNTS = 50
+MAX_CHATS = 20000
 
 os.makedirs("sessions", exist_ok=True)
 os.makedirs("logs", exist_ok=True)
@@ -139,7 +139,6 @@ async def send_code(request):
         if not user:
             return json_response(False, "Пользователь не найден")
 
-        # Проверка лимита
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
@@ -275,33 +274,57 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS (до 20к) =========================
+# ========================= GET CHATS — ИСПРАВЛЕНА ПРОБЛЕМА =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
+
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
             if not acc:
                 return json_response(False, "Аккаунт не найден")
 
-        client = Client(f"sessions/{acc[6]}", api_id=int(acc[3]), api_hash=acc[4])
+        session_path = f"sessions/{acc[6]}"
+        
+        client = Client(
+            session_path,
+            api_id=int(acc[3]),
+            api_hash=acc[4],
+            device_model="Nebula Bot",
+            system_version="Windows 10",
+            app_version="1.0"
+        )
+
         await client.connect()
+        
+        # Прогрев сессии
+        await asyncio.sleep(1)
+        await client.get_dialogs(limit=5)
 
         chats = []
         async for dialog in client.get_dialogs(limit=MAX_CHATS):
-            if dialog.chat.type in ["group", "supergroup", "channel", "private"]:
+            chat = dialog.chat
+            if chat.type in ("group", "supergroup", "channel", "private"):
+                title = chat.title or chat.first_name or chat.username or "Без названия"
                 chats.append({
-                    "id": str(dialog.chat.id),
-                    "title": dialog.chat.title or dialog.chat.first_name or dialog.chat.username or "Без названия"
+                    "id": str(chat.id),
+                    "title": title
                 })
 
         await client.disconnect()
+
+        print(f"✅ Успешно загружено {len(chats)} чатов для аккаунта {acc[2]}")
         return json_response(True, chats=chats)
+
+    except AuthKeyUnregistered:
+        return json_response(False, "Сессия устарела. Удалите аккаунт и добавьте заново.")
+    except FloodWait as e:
+        return json_response(False, f"Слишком много запросов. Подождите {e.value} секунд.")
     except Exception as e:
         print("get_chats error:", str(e))
-        return json_response(False, str(e))
+        return json_response(False, f"Ошибка загрузки чатов: {str(e)}")
 
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
