@@ -150,7 +150,9 @@ async def send_code(request):
         api_id = int(data["api_id"])
         api_hash = data["api_hash"]
 
-        session_name = f"sessions/{username}_{phone.replace('+', '')}"
+        clean_phone = ''.join(filter(str.isdigit, phone))
+
+        session_name = f"sessions/{username}_{clean_phone}"
         client = Client(session_name, api_id=api_id, api_hash=api_hash)
 
         await client.connect()
@@ -225,7 +227,7 @@ async def save_account(auth, tg_username):
             print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
             return
 
-        session_name = f"{auth['username']}_{auth['phone'].replace('+', '')}"
+        session_name = f"{auth['username']}_{auth['phone'].replace('+', '').replace(' ', '')}"
 
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
@@ -274,57 +276,68 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS — ИСПРАВЛЕНО =========================
+# ========================= GET CHATS FIX =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+            cursor = await db.execute(
+                "SELECT * FROM accounts WHERE id=?",
+                (account_id,)
+            )
             acc = await cursor.fetchone()
-            if not acc:
-                return json_response(False, "Аккаунт не найден")
 
-        session_path = f"sessions/{acc[6]}"
-        
+        if not acc:
+            return json_response(False, "Аккаунт не найден")
+
+        session_name = f"sessions/{acc[6]}"
+
         client = Client(
-            session_path,
+            session_name=session_name,
             api_id=int(acc[3]),
             api_hash=acc[4],
-            device_model="Nebula Bot",
-            system_version="Windows 10",
-            app_version="1.0"
+            in_memory=False
         )
 
-        await client.connect()
-        
-        print(f"🔄 Загрузка диалогов для {acc[2]}...")
+        print(f"🔄 Подключение к аккаунту {acc[2]}")
 
-        await asyncio.sleep(3)  # Важная пауза для синхронизации
-        
+        await client.start()
+
+        me = await client.get_me()
+        print(f"✅ Авторизация успешна: {me.id}")
+
         chats = []
-        async for dialog in client.get_dialogs(limit=MAX_CHATS):
-            chat = dialog.chat
-            if chat.type in ("group", "supergroup", "channel", "private"):
-                title = chat.title or chat.first_name or chat.username or "Без названия"
+
+        async for dialog in client.get_dialogs():
+            try:
+                chat = dialog.chat
+
+                title = (
+                    getattr(chat, "title", None)
+                    or getattr(chat, "first_name", None)
+                    or getattr(chat, "username", None)
+                    or "Без названия"
+                )
+
                 chats.append({
                     "id": str(chat.id),
                     "title": title
                 })
 
-        await client.disconnect()
+            except Exception as e:
+                print("dialog parse error:", e)
 
-        print(f"✅ Успешно загружено {len(chats)} чатов для аккаунта {acc[2]}")
+        await client.stop()
+
+        print(f"✅ Загружено {len(chats)} чатов")
+
         return json_response(True, chats=chats)
 
-    except AuthKeyUnregistered:
-        return json_response(False, "Сессия устарела. Удалите аккаунт и добавьте заново.")
-    except FloodWait as e:
-        return json_response(False, f"Слишком много запросов. Подождите {e.value} секунд.")
     except Exception as e:
-        print("get_chats error:", str(e))
-        return json_response(False, f"Ошибка загрузки чатов: {str(e)}")
+        print("GET CHATS ERROR:", str(e))
+        return json_response(False, str(e))
 
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
