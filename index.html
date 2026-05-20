@@ -52,12 +52,12 @@
             <button onclick="logout()" style="
                 background:#ef4444; 
                 color:white; 
-                padding:8px 20px; 
+                padding:10px 22px; 
                 border:none; 
                 border-radius:8px; 
                 cursor:pointer;
-                font-weight:600;
-                box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+                font-weight:700;
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
             ">
                 ВЫХОД
             </button>
@@ -198,6 +198,9 @@ async function login() {
 
 // ==================== ADD ACCOUNT ====================
 async function sendCode() {
+    const proxy = document.getElementById("proxy").value.trim();
+    const useProxy = document.getElementById("use_proxy").checked;
+
     const res = await fetch(API + "/send_code", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -205,7 +208,8 @@ async function sendCode() {
             username: currentUser,
             phone: document.getElementById("phone").value.trim(),
             api_id: document.getElementById("api_id").value.trim(),
-            api_hash: document.getElementById("api_hash").value.trim()
+            api_hash: document.getElementById("api_hash").value.trim(),
+            proxy: useProxy ? proxy : null
         })
     });
     const d = await res.json();
@@ -480,29 +484,6 @@ function logout() {
         currentUser = "";
         openPage("loginPage");
     }
-}
-
-// Обновлённая функция отправки кода с прокси
-async function sendCode() {
-    const proxy = document.getElementById("proxy").value.trim();
-    const useProxy = document.getElementById("use_proxy").checked;
-
-    const res = await fetch(API + "/send_code", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({
-            username: currentUser,
-            phone: document.getElementById("phone").value.trim(),
-            api_id: document.getElementById("api_id").value.trim(),
-            api_hash: document.getElementById("api_hash").value.trim(),
-            proxy: useProxy ? proxy : null
-        })
-    });
-    const d = await res.json();
-    if (d.status) {
-        auth_id = d.auth_id;
-        document.getElementById("codeBlock").style.display = "block";
-    } else alert(d.message);
 }
 </script>
 </body>
