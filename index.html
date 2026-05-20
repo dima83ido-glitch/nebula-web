@@ -34,7 +34,12 @@
         <h2>NEBULA LOGIN</h2>
         <input id="loginUsername" placeholder="Имя пользователя">
         <input id="loginPassword" type="password" placeholder="Пароль">
-        <label><input type="checkbox" id="remember"> Запомнить меня</label>
+        
+        <label style="display:flex; align-items:center; gap:8px; margin:10px 0; cursor:pointer;">
+            <input type="checkbox" id="remember">
+            <span>Запомнить меня</span>
+        </label>
+        
         <button class="menu-btn" onclick="login()">Войти</button>
     </div>
 </div>
@@ -67,16 +72,27 @@
         <h3>Добавление Telegram аккаунта</h3>
         
         <input id="phone" placeholder="+380XXXXXXXXX">
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
+            Номер телефона вашего аккаунта
+        </small>
+
         <input id="api_id" placeholder="API ID">
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
+            Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
+        </small>
+
         <input id="api_hash" placeholder="API HASH">
-        
-        <!-- Новый блок Прокси -->
-        <div style="margin:15px 0; padding:12px; background:#1e293b; border-radius:12px;">
-            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
+            Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
+        </small>
+
+        <!-- Прокси блок -->
+        <div style="margin:15px 0; padding:15px; background:#1e293b; border-radius:12px; border:1px solid #334155;">
+            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:15px;">
                 <input type="checkbox" id="use_proxy">
                 <span>Использовать прокси</span>
             </label>
-            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:8px;">
+            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:10px;">
         </div>
 
         <button class="menu-btn" onclick="sendCode()">Отправить код</button>
