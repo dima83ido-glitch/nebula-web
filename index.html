@@ -43,6 +43,11 @@
 <div id="dashboard" class="page">
     <div class="container">
         <h2>👤 <span id="nickname">Пользователь</span></h2>
+        <div style="text-align: right; margin-bottom: 15px;">
+    <button onclick="logout()" style="background:#ef4444; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer;">
+        ВЫХОД
+    </button>
+</div>
         <div class="section-card">
             <div class="section-header">🧮 АККАУНТЫ</div>
             <button class="menu-btn" onclick="openPage('addAccountPage')">+ ДОБАВИТЬ АККАУНТ</button>
@@ -60,9 +65,20 @@
     <div class="container">
         <button class="back-btn" onclick="openPage('dashboard')">← Назад</button>
         <h3>Добавление Telegram аккаунта</h3>
+        
         <input id="phone" placeholder="+380XXXXXXXXX">
         <input id="api_id" placeholder="API ID">
         <input id="api_hash" placeholder="API HASH">
+        
+        <!-- Новый блок Прокси -->
+        <div style="margin:15px 0; padding:12px; background:#1e293b; border-radius:12px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="use_proxy">
+                <span>Использовать прокси</span>
+            </label>
+            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:8px;">
+        </div>
+
         <button class="menu-btn" onclick="sendCode()">Отправить код</button>
 
         <div id="codeBlock" style="display:none;">
@@ -431,6 +447,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     observer.observe(createPage, { attributes: true, attributeFilter: ['class'] });
 });
+
+// Выход из аккаунта
+function logout() {
+    if (confirm("Выйти из кабинета?")) {
+        currentUser = "";
+        openPage("loginPage");
+    }
+}
+
+// Обновлённая функция отправки кода с прокси
+async function sendCode() {
+    const proxy = document.getElementById("proxy").value.trim();
+    const useProxy = document.getElementById("use_proxy").checked;
+
+    const res = await fetch(API + "/send_code", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            username: currentUser,
+            phone: document.getElementById("phone").value.trim(),
+            api_id: document.getElementById("api_id").value.trim(),
+            api_hash: document.getElementById("api_hash").value.trim(),
+            proxy: useProxy ? proxy : null
+        })
+    });
+    const d = await res.json();
+    if (d.status) {
+        auth_id = d.auth_id;
+        document.getElementById("codeBlock").style.display = "block";
+    } else alert(d.message);
+}
 </script>
 </body>
 </html>
