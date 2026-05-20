@@ -139,6 +139,7 @@ async def send_code(request):
         if not user:
             return json_response(False, "Пользователь не найден")
 
+        # Проверка лимита аккаунтов
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
@@ -149,23 +150,36 @@ async def send_code(request):
         phone = data["phone"]
         api_id = int(data["api_id"])
         api_hash = data["api_hash"]
+        proxy = data.get("proxy")  # ← Добавлено
 
         clean_phone = ''.join(filter(str.isdigit, phone))
-
         session_name = f"sessions/{username}_{clean_phone}"
-        client = Client(session_name, api_id=api_id, api_hash=api_hash)
+
+        # Создаём клиент с поддержкой прокси
+        client = Client(
+            session_name, 
+            api_id=api_id, 
+            api_hash=api_hash,
+            proxy=proxy if proxy else None   # ← Если прокси передан — используем
+        )
 
         await client.connect()
         sent_code = await client.send_code(phone)
 
         auth_id = str(uuid.uuid4())
         pending_auths[auth_id] = {
-            "client": client, "phone": phone, "api_id": api_id,
-            "api_hash": api_hash, "phone_code_hash": sent_code.phone_code_hash,
-            "username": username
+            "client": client, 
+            "phone": phone, 
+            "api_id": api_id,
+            "api_hash": api_hash, 
+            "phone_code_hash": sent_code.phone_code_hash,
+            "username": username,
+            "session_name": session_name
         }
         return json_response(True, "Код отправлен", auth_id=auth_id)
+
     except Exception as e:
+        print("send_code error:", str(e))
         return json_response(False, str(e))
 
 async def verify_code(request):
