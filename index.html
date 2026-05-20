@@ -35,7 +35,7 @@
         <input id="loginUsername" placeholder="Имя пользователя">
         <input id="loginPassword" type="password" placeholder="Пароль">
         
-        <label style="display:flex; align-items:center; gap:8px; margin:10px 0; cursor:pointer;">
+        <label style="display:flex; align-items:center; gap:10px; margin:15px 0; cursor:pointer; font-size:15px;">
             <input type="checkbox" id="remember">
             <span>Запомнить меня</span>
         </label>
@@ -47,12 +47,22 @@
 <!-- DASHBOARD -->
 <div id="dashboard" class="page">
     <div class="container">
-        <h2>👤 <span id="nickname">Пользователь</span></h2>
-        <div style="text-align: right; margin-bottom: 15px;">
-    <button onclick="logout()" style="background:#ef4444; color:white; padding:8px 16px; border:none; border-radius:8px; cursor:pointer;">
-        ВЫХОД
-    </button>
-</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+            <h2>👤 <span id="nickname">Пользователь</span></h2>
+            <button onclick="logout()" style="
+                background:#ef4444; 
+                color:white; 
+                padding:8px 20px; 
+                border:none; 
+                border-radius:8px; 
+                cursor:pointer;
+                font-weight:600;
+                box-shadow: 0 0 15px rgba(239, 68, 68, 0.6);
+            ">
+                ВЫХОД
+            </button>
+        </div>
+
         <div class="section-card">
             <div class="section-header">🧮 АККАУНТЫ</div>
             <button class="menu-btn" onclick="openPage('addAccountPage')">+ ДОБАВИТЬ АККАУНТ</button>
@@ -86,13 +96,13 @@
             Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
         </small>
 
-        <!-- Прокси блок -->
-        <div style="margin:15px 0; padding:15px; background:#1e293b; border-radius:12px; border:1px solid #334155;">
+        <!-- Прокси -->
+        <div style="margin:20px 0; padding:15px; background:#1e293b; border-radius:12px; border:1px solid #334155;">
             <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:15px;">
                 <input type="checkbox" id="use_proxy">
                 <span>Использовать прокси</span>
             </label>
-            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:10px;">
+            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:10px; width:100%;">
         </div>
 
         <button class="menu-btn" onclick="sendCode()">Отправить код</button>
