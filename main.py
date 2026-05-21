@@ -134,32 +134,24 @@ async def send_code(request):
     try:
         data = await request.json()
 
-        username = data["username"]
-
-        user = await get_user(username)
-
-        if not user:
-            return json_response(False, "Пользователь не найден")
-
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT COUNT(*) FROM accounts WHERE owner_id=?",
-                (user[0],)
-            )
-            count = (await cursor.fetchone())[0]
-
-        if count >= MAX_ACCOUNTS:
-            return json_response(False, f"Лимит {MAX_ACCOUNTS} аккаунтов")
-
-        phone = data["phone"]
-        api_id = int(data["api_id"])
-        api_hash = data["api_hash"]
-
+        username = data.get("username")
+        phone = data.get("phone")
+        api_id = int(data.get("api_id"))
+        api_hash = data.get("api_hash")
         proxy = data.get("proxy")
 
         clean_phone = ''.join(filter(str.isdigit, phone))
 
         session_name = f"sessions/{username}_{clean_phone}"
+
+        # Удаляем битую сессию
+        session_file = f"{session_name}.session"
+
+        if os.path.exists(session_file):
+            try:
+                os.remove(session_file)
+            except:
+                pass
 
         # ================= PROXY =================
         proxy_config = None
@@ -184,7 +176,6 @@ async def send_code(request):
                             "username": username_p,
                             "password": password_p
                         }
-
                     else:
                         hostname, port = proxy.split(":")
 
@@ -194,37 +185,10 @@ async def send_code(request):
                             "port": int(port)
                         }
 
-                elif proxy.startswith("http://"):
-                    proxy = proxy.replace("http://", "")
-
-                    if "@" in proxy:
-                        auth, hostport = proxy.split("@")
-
-                        username_p, password_p = auth.split(":")
-                        hostname, port = hostport.split(":")
-
-                        proxy_config = {
-                            "scheme": "http",
-                            "hostname": hostname,
-                            "port": int(port),
-                            "username": username_p,
-                            "password": password_p
-                        }
-
-                    else:
-                        hostname, port = proxy.split(":")
-
-                        proxy_config = {
-                            "scheme": "http",
-                            "hostname": hostname,
-                            "port": int(port)
-                        }
-
-                print("✅ Proxy connected:", proxy_config)
-
             except Exception as e:
-                print("❌ proxy parse error:", e)
-                return json_response(False, f"Ошибка proxy: {str(e)}")
+                return json_response(False, f"Proxy error: {str(e)}")
+
+        print("PROXY:", proxy_config)
 
         # ================= CLIENT =================
         client = Client(
@@ -232,14 +196,22 @@ async def send_code(request):
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy_config,
+            device_model="Nebula",
+            system_version="1.0",
+            app_version="1.0",
+            lang_code="en",
             in_memory=False
         )
 
-        print(f"🔄 Отправка кода на {phone}")
+        print("CONNECTING...")
 
         await client.connect()
 
+        print("CONNECTED")
+
         sent_code = await client.send_code(phone)
+
+        print("CODE SENT")
 
         auth_id = str(uuid.uuid4())
 
@@ -254,8 +226,6 @@ async def send_code(request):
             "session_name": session_name
         }
 
-        print("✅ Код отправлен")
-
         return json_response(
             True,
             "Код отправлен",
@@ -263,7 +233,7 @@ async def send_code(request):
         )
 
     except FloodWait as e:
-        return json_response(False, f"FloodWait {e.value} сек")
+        return json_response(False, f"FloodWait {e.value}")
 
     except Exception as e:
         print("SEND CODE ERROR:", str(e))
