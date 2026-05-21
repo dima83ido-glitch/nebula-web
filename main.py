@@ -228,7 +228,7 @@ async def send_code(request):
 
         # ================= CLIENT =================
         client = Client(
-            session_name=session_name,
+            session_name,
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy_config,
@@ -466,7 +466,7 @@ async def get_chats(request):
 
         # ================= CLIENT =================
         client = Client(
-            session_name=session_name,
+            session_name,
             api_id=int(acc[3]),
             api_hash=acc[4],
             proxy=proxy_config,
@@ -532,7 +532,11 @@ async def mailing_worker(mailing_id):
                 acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
                 account = await acc_cursor.fetchone()
 
-                client = Client(f"sessions/{account[6]}", api_id=int(account[3]), api_hash=account[4])
+                client = Client(
+    f"sessions/{account[6]}",
+    api_id=int(account[3]),
+    api_hash=account[4]
+)
                 await client.connect()
 
                 chats = json.loads(mailing[8])
