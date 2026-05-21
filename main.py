@@ -133,54 +133,140 @@ async def login(request):
 async def send_code(request):
     try:
         data = await request.json()
+
         username = data["username"]
 
         user = await get_user(username)
+
         if not user:
             return json_response(False, "Пользователь не найден")
 
-        # Проверка лимита аккаунтов
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM accounts WHERE owner_id=?",
+                (user[0],)
+            )
             count = (await cursor.fetchone())[0]
 
         if count >= MAX_ACCOUNTS:
-            return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
+            return json_response(False, f"Лимит {MAX_ACCOUNTS} аккаунтов")
 
         phone = data["phone"]
         api_id = int(data["api_id"])
         api_hash = data["api_hash"]
-        proxy = data.get("proxy")  # ← Добавлено
+
+        proxy = data.get("proxy")
 
         clean_phone = ''.join(filter(str.isdigit, phone))
+
         session_name = f"sessions/{username}_{clean_phone}"
 
-        # Создаём клиент с поддержкой прокси
+        # ================= PROXY =================
+        proxy_config = None
+
+        if proxy:
+            try:
+                proxy = proxy.strip()
+
+                if proxy.startswith("socks5://"):
+                    proxy = proxy.replace("socks5://", "")
+
+                    if "@" in proxy:
+                        auth, hostport = proxy.split("@")
+
+                        username_p, password_p = auth.split(":")
+                        hostname, port = hostport.split(":")
+
+                        proxy_config = {
+                            "scheme": "socks5",
+                            "hostname": hostname,
+                            "port": int(port),
+                            "username": username_p,
+                            "password": password_p
+                        }
+
+                    else:
+                        hostname, port = proxy.split(":")
+
+                        proxy_config = {
+                            "scheme": "socks5",
+                            "hostname": hostname,
+                            "port": int(port)
+                        }
+
+                elif proxy.startswith("http://"):
+                    proxy = proxy.replace("http://", "")
+
+                    if "@" in proxy:
+                        auth, hostport = proxy.split("@")
+
+                        username_p, password_p = auth.split(":")
+                        hostname, port = hostport.split(":")
+
+                        proxy_config = {
+                            "scheme": "http",
+                            "hostname": hostname,
+                            "port": int(port),
+                            "username": username_p,
+                            "password": password_p
+                        }
+
+                    else:
+                        hostname, port = proxy.split(":")
+
+                        proxy_config = {
+                            "scheme": "http",
+                            "hostname": hostname,
+                            "port": int(port)
+                        }
+
+                print("✅ Proxy connected:", proxy_config)
+
+            except Exception as e:
+                print("❌ proxy parse error:", e)
+                return json_response(False, f"Ошибка proxy: {str(e)}")
+
+        # ================= CLIENT =================
         client = Client(
-            session_name, 
-            api_id=api_id, 
+            session_name=session_name,
+            api_id=api_id,
             api_hash=api_hash,
-            proxy=proxy if proxy else None   # ← Если прокси передан — используем
+            proxy=proxy_config,
+            in_memory=False
         )
 
+        print(f"🔄 Отправка кода на {phone}")
+
         await client.connect()
+
         sent_code = await client.send_code(phone)
 
         auth_id = str(uuid.uuid4())
+
         pending_auths[auth_id] = {
-            "client": client, 
-            "phone": phone, 
+            "client": client,
+            "phone": phone,
             "api_id": api_id,
-            "api_hash": api_hash, 
+            "api_hash": api_hash,
+            "proxy": proxy,
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
-            "session_name": session_name,
-            "proxy": proxy
+            "session_name": session_name
         }
-        return json_response(True, "Код отправлен", auth_id=auth_id)
+
+        print("✅ Код отправлен")
+
+        return json_response(
+            True,
+            "Код отправлен",
+            auth_id=auth_id
+        )
+
+    except FloodWait as e:
+        return json_response(False, f"FloodWait {e.value} сек")
 
     except Exception as e:
-        print("send_code error:", str(e))
+        print("SEND CODE ERROR:", str(e))
         return json_response(False, str(e))
 
 async def verify_code(request):
