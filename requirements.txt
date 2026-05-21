@@ -1,7 +1,7 @@
-aiohttp
-aiohttp_cors
 pyrogram==2.0.106
 tgcrypto
+aiohttp
+aiohttp_cors
 aiosqlite
-bcrypt==4.1.2
-PySocks
+bcrypt
+pysocks
