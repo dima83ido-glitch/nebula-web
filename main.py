@@ -174,7 +174,8 @@ async def send_code(request):
             "api_hash": api_hash, 
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
-            "session_name": session_name
+            "session_name": session_name,
+            "proxy": proxy
         }
         return json_response(True, "Код отправлен", auth_id=auth_id)
 
@@ -245,9 +246,16 @@ async def save_account(auth, tg_username):
 
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
-                INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], None, session_name))
+    INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
+    VALUES (?, ?, ?, ?, ?, ?)
+""", (
+    user[0],
+    auth["phone"],
+    str(auth["api_id"]),
+    auth["api_hash"],
+    auth.get("proxy"),
+    session_name
+))
             await db.commit()
             print(f"Аккаунт сохранён: {auth['phone']} | Всего: {count+1}/{MAX_ACCOUNTS}")
     except Exception as e:
@@ -308,18 +316,83 @@ async def get_chats(request):
 
         session_name = f"sessions/{acc[6]}"
 
+        # ================= PROXY =================
+        proxy_config = None
+
+        if acc[5]:
+            try:
+                proxy = acc[5].strip()
+
+                if proxy.startswith("socks5://"):
+                    proxy = proxy.replace("socks5://", "")
+
+                    if "@" in proxy:
+                        auth, hostport = proxy.split("@")
+
+                        username, password = auth.split(":")
+                        hostname, port = hostport.split(":")
+
+                        proxy_config = {
+                            "scheme": "socks5",
+                            "hostname": hostname,
+                            "port": int(port),
+                            "username": username,
+                            "password": password
+                        }
+                    else:
+                        hostname, port = proxy.split(":")
+
+                        proxy_config = {
+                            "scheme": "socks5",
+                            "hostname": hostname,
+                            "port": int(port)
+                        }
+
+                elif proxy.startswith("http://"):
+                    proxy = proxy.replace("http://", "")
+
+                    if "@" in proxy:
+                        auth, hostport = proxy.split("@")
+
+                        username, password = auth.split(":")
+                        hostname, port = hostport.split(":")
+
+                        proxy_config = {
+                            "scheme": "http",
+                            "hostname": hostname,
+                            "port": int(port),
+                            "username": username,
+                            "password": password
+                        }
+                    else:
+                        hostname, port = proxy.split(":")
+
+                        proxy_config = {
+                            "scheme": "http",
+                            "hostname": hostname,
+                            "port": int(port)
+                        }
+
+                print("✅ Proxy loaded:", proxy_config)
+
+            except Exception as e:
+                print("❌ proxy parse error:", e)
+
+        # ================= CLIENT =================
         client = Client(
-            session_name,
+            session_name=session_name,
             api_id=int(acc[3]),
             api_hash=acc[4],
+            proxy=proxy_config,
             in_memory=False
-)
+        )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
 
         await client.start()
 
         me = await client.get_me()
+
         print(f"✅ Авторизация успешна: {me.id}")
 
         chats = []
@@ -348,6 +421,12 @@ async def get_chats(request):
         print(f"✅ Загружено {len(chats)} чатов")
 
         return json_response(True, chats=chats)
+
+    except AuthKeyUnregistered:
+        return json_response(False, "Сессия Telegram слетела")
+
+    except FloodWait as e:
+        return json_response(False, f"FloodWait: {e.value} сек")
 
     except Exception as e:
         print("GET CHATS ERROR:", str(e))
