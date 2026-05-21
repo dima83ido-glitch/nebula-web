@@ -134,98 +134,33 @@ async def send_code(request):
     try:
         data = await request.json()
 
-        username = str(data.get("username")).strip()
-        phone = str(data.get("phone")).strip()
-        api_id = int(data.get("api_id"))
-        api_hash = str(data.get("api_hash")).strip()
-        proxy = data.get("proxy")
-
-        # ================= PHONE FIX =================
-        phone = phone.replace(" ", "").replace("-", "")
-
-        if not phone.startswith("+"):
-            return json_response(
-                False,
-                "Номер должен быть в формате +380XXXXXXXXX"
-            )
+        username = data["username"]
+        phone = data["phone"].replace(" ", "")
+        api_id = int(data["api_id"])
+        api_hash = data["api_hash"]
 
         clean_phone = ''.join(filter(str.isdigit, phone))
+        session_name = f"sessions/{username}_{clean_phone}"
 
-        # ================= SESSION =================
-        session_name = f"{username}_{clean_phone}"
-        session_path = f"sessions/{session_name}"
+        session_file = f"{session_name}.session"
 
-        # удаляем старые session
-        for ext in [".session", ".session-journal"]:
-            file_path = session_path + ext
+        if os.path.exists(session_file):
+            os.remove(session_file)
 
-            if os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except:
-                    pass
-
-        # ================= PROXY =================
-        proxy_config = None
-
-        if proxy:
-            try:
-                proxy = proxy.strip()
-
-                if proxy.startswith("socks5://"):
-                    proxy = proxy.replace("socks5://", "")
-
-                    if "@" in proxy:
-                        auth, hostport = proxy.split("@")
-
-                        p_user, p_pass = auth.split(":")
-                        host, port = hostport.split(":")
-
-                        proxy_config = {
-                            "scheme": "socks5",
-                            "hostname": host,
-                            "port": int(port),
-                            "username": p_user,
-                            "password": p_pass
-                        }
-
-                    else:
-                        host, port = proxy.split(":")
-
-                        proxy_config = {
-                            "scheme": "socks5",
-                            "hostname": host,
-                            "port": int(port)
-                        }
-
-            except Exception as e:
-                return json_response(False, f"Ошибка proxy: {str(e)}")
-
-        print("PROXY:", proxy_config)
-
-        # ================= CLIENT =================
         client = Client(
-            session_path,
+            session_name,
             api_id=api_id,
             api_hash=api_hash,
-            proxy=proxy_config,
-            device_model="Nebula",
-            system_version="Ubuntu 22.04",
-            app_version="Nebula 1.0",
+            device_model="iPhone 15 Pro",
+            system_version="IOS 17.0",
+            app_version="10.6",
             lang_code="en",
             in_memory=False
         )
 
-        print("CONNECTING TELEGRAM...")
-
         await client.connect()
 
-        print("CONNECTED")
-
-        # ================= SEND CODE =================
         sent_code = await client.send_code(phone)
-
-        print("CODE SUCCESSFULLY SENT")
 
         auth_id = str(uuid.uuid4())
 
@@ -234,7 +169,6 @@ async def send_code(request):
             "phone": phone,
             "api_id": api_id,
             "api_hash": api_hash,
-            "proxy": proxy,
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
             "session_name": session_name
@@ -246,19 +180,9 @@ async def send_code(request):
             auth_id=auth_id
         )
 
-    except FloodWait as e:
-        return json_response(
-            False,
-            f"Telegram FloodWait: {e.value} сек"
-        )
-
     except Exception as e:
         print("SEND CODE ERROR:", str(e))
-
-        return json_response(
-            False,
-            str(e)
-        )
+        return json_response(False, str(e))
 
 async def verify_code(request):
     try:
