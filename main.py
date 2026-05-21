@@ -75,6 +75,7 @@ async def create_admin():
                 ("admin", hashed, "admin")
             )
             await db.commit()
+    print("✅ Админ создан → admin / orion123")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
@@ -133,57 +134,53 @@ async def login(request):
 async def send_code(request):
     try:
         data = await request.json()
-
         username = data["username"]
-        phone = data["phone"].replace(" ", "")
+
+        user = await get_user(username)
+        if not user:
+            return json_response(False, "Пользователь не найден")
+
+        async with aiosqlite.connect(DATABASE) as db:
+            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
+            count = (await cursor.fetchone())[0]
+
+        if count >= MAX_ACCOUNTS:
+            return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
+
+        phone = data["phone"]
         api_id = int(data["api_id"])
         api_hash = data["api_hash"]
+        proxy = data.get("proxy")
 
         clean_phone = ''.join(filter(str.isdigit, phone))
         session_name = f"sessions/{username}_{clean_phone}"
 
-        session_file = f"{session_name}.session"
-
-        if os.path.exists(session_file):
-            os.remove(session_file)
-
         client = Client(
-            session_name,
-            api_id=api_id,
+            session_name, 
+            api_id=api_id, 
             api_hash=api_hash,
-            device_model="iPhone 15 Pro",
-            system_version="IOS 17.0",
-            app_version="10.6",
-            lang_code="en",
-            in_memory=False
+            proxy=proxy if proxy else None
         )
 
         await client.connect()
-
         sent_code = await client.send_code(phone)
 
         auth_id = str(uuid.uuid4())
-
         pending_auths[auth_id] = {
-            "client": client,
-            "phone": phone,
+            "client": client, 
+            "phone": phone, 
             "api_id": api_id,
-            "api_hash": api_hash,
+            "api_hash": api_hash, 
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
             "session_name": session_name
         }
-
-        return json_response(
-            True,
-            "Код отправлен",
-            auth_id=auth_id
-        )
+        return json_response(True, "Код отправлен", auth_id=auth_id)
 
     except Exception as e:
-        print("SEND CODE ERROR:", str(e))
+        print("send_code error:", str(e))
         return json_response(False, str(e))
-    
+
 async def verify_code(request):
     try:
         data = await request.json()
@@ -247,16 +244,9 @@ async def save_account(auth, tg_username):
 
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
-    INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
-    VALUES (?, ?, ?, ?, ?, ?)
-""", (
-    user[0],
-    auth["phone"],
-    str(auth["api_id"]),
-    auth["api_hash"],
-    auth.get("proxy"),
-    session_name
-))
+                INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], auth.get("proxy"), session_name))
             await db.commit()
             print(f"Аккаунт сохранён: {auth['phone']} | Всего: {count+1}/{MAX_ACCOUNTS}")
     except Exception as e:
@@ -299,135 +289,40 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS FIX =========================
+# ========================= GET CHATS =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT * FROM accounts WHERE id=?",
-                (account_id,)
-            )
+            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
 
-        session_name = f"sessions/{acc[6]}"
-
-        # ================= PROXY =================
-        proxy_config = None
-
-        if acc[5]:
-            try:
-                proxy = acc[5].strip()
-
-                if proxy.startswith("socks5://"):
-                    proxy = proxy.replace("socks5://", "")
-
-                    if "@" in proxy:
-                        auth, hostport = proxy.split("@")
-
-                        username, password = auth.split(":")
-                        hostname, port = hostport.split(":")
-
-                        proxy_config = {
-                            "scheme": "socks5",
-                            "hostname": hostname,
-                            "port": int(port),
-                            "username": username,
-                            "password": password
-                        }
-                    else:
-                        hostname, port = proxy.split(":")
-
-                        proxy_config = {
-                            "scheme": "socks5",
-                            "hostname": hostname,
-                            "port": int(port)
-                        }
-
-                elif proxy.startswith("http://"):
-                    proxy = proxy.replace("http://", "")
-
-                    if "@" in proxy:
-                        auth, hostport = proxy.split("@")
-
-                        username, password = auth.split(":")
-                        hostname, port = hostport.split(":")
-
-                        proxy_config = {
-                            "scheme": "http",
-                            "hostname": hostname,
-                            "port": int(port),
-                            "username": username,
-                            "password": password
-                        }
-                    else:
-                        hostname, port = proxy.split(":")
-
-                        proxy_config = {
-                            "scheme": "http",
-                            "hostname": hostname,
-                            "port": int(port)
-                        }
-
-                print("✅ Proxy loaded:", proxy_config)
-
-            except Exception as e:
-                print("❌ proxy parse error:", e)
-
-        # ================= CLIENT =================
         client = Client(
-            session_name,
+            f"sessions/{acc[6]}",
             api_id=int(acc[3]),
-            api_hash=acc[4],
-            proxy=proxy_config,
-            in_memory=False
+            api_hash=acc[4]
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
-
         await client.start()
 
-        me = await client.get_me()
-
-        print(f"✅ Авторизация успешна: {me.id}")
-
         chats = []
-
-        async for dialog in client.get_dialogs():
+        async for dialog in client.get_dialogs(limit=MAX_CHATS):
             try:
                 chat = dialog.chat
-
-                title = (
-                    getattr(chat, "title", None)
-                    or getattr(chat, "first_name", None)
-                    or getattr(chat, "username", None)
-                    or "Без названия"
-                )
-
-                chats.append({
-                    "id": str(chat.id),
-                    "title": title
-                })
-
-            except Exception as e:
-                print("dialog parse error:", e)
+                title = chat.title or chat.first_name or chat.username or "Без названия"
+                chats.append({"id": str(chat.id), "title": title})
+            except:
+                pass
 
         await client.stop()
-
         print(f"✅ Загружено {len(chats)} чатов")
-
         return json_response(True, chats=chats)
-
-    except AuthKeyUnregistered:
-        return json_response(False, "Сессия Telegram слетела")
-
-    except FloodWait as e:
-        return json_response(False, f"FloodWait: {e.value} сек")
 
     except Exception as e:
         print("GET CHATS ERROR:", str(e))
@@ -447,11 +342,7 @@ async def mailing_worker(mailing_id):
                 acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
                 account = await acc_cursor.fetchone()
 
-                client = Client(
-    f"sessions/{account[6]}",
-    api_id=int(account[3]),
-    api_hash=account[4]
-)
+                client = Client(f"sessions/{account[6]}", api_id=int(account[3]), api_hash=account[4])
                 await client.connect()
 
                 chats = json.loads(mailing[8])
