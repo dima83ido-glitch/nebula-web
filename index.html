@@ -81,99 +81,24 @@ select:focus {
 </style>
 </head>
 <body>
+
 <!-- LOGIN -->
 <div id="loginPage" class="page active">
     <div class="container">
-        <div style="
-            background:#111827;
-            border:1px solid #1e293b;
-            border-radius:20px;
-            padding:28px;
-            margin-top:60px;
-            box-shadow:0 0 40px rgba(0,0,0,0.35);
-        ">
-            <h2 style="
-                margin-top:0;
-                margin-bottom:25px;
-                font-size:30px;
-                font-weight:800;
-                color:#93c5fd;
-                text-align:center;
-                letter-spacing:1px;
-            ">
+        <div style="background:#111827; border:1px solid #1e293b; border-radius:20px; padding:28px; margin-top:60px; box-shadow:0 0 40px rgba(0,0,0,0.35);">
+            <h2 style="margin-top:0; margin-bottom:25px; font-size:30px; font-weight:800; color:#93c5fd; text-align:center; letter-spacing:1px;">
                 NEBULA LOGIN
             </h2>
-            <input
-                id="loginUsername"
-                placeholder="Имя пользователя"
-                style="
-                    height:52px;
-                    font-size:15px;
-                    border-radius:14px;
-                    background:#0b1120;
-                    border:1px solid #334155;
-                    padding:0 16px;
-                "
-            >
-            <input
-                id="loginPassword"
-                type="password"
-                placeholder="Пароль"
-                style="
-                    height:52px;
-                    font-size:15px;
-                    border-radius:14px;
-                    background:#0b1120;
-                    border:1px solid #334155;
-                    padding:0 16px;
-                    margin-top:12px;
-                "
-            >
-            <!-- remember -->
-            <div style="
-                display:flex;
-                justify-content:flex-end;
-                margin-top:14px;
-                margin-bottom:20px;
-            ">
-                <label style="
-                    display:flex;
-                    align-items:center;
-                    gap:8px;
-                    cursor:pointer;
-                    color:#cbd5e1;
-                    font-size:14px;
-                    white-space:nowrap;
-                    user-select:none;
-                ">
+            <input id="loginUsername" placeholder="Имя пользователя" style="height:52px; font-size:15px; border-radius:14px; background:#0b1120; border:1px solid #334155; padding:0 16px;">
+            <input id="loginPassword" type="password" placeholder="Пароль" style="height:52px; font-size:15px; border-radius:14px; background:#0b1120; border:1px solid #334155; padding:0 16px; margin-top:12px;">
+            
+            <div style="display:flex; justify-content:flex-end; margin-top:14px; margin-bottom:20px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; color:#cbd5e1; font-size:14px; white-space:nowrap; user-select:none;">
                     <span>Запомнить меня</span>
-                    <input
-                        type="checkbox"
-                        id="remember"
-                        style="
-                            width:17px;
-                            height:17px;
-                            cursor:pointer;
-                            accent-color:#3b82f6;
-                        "
-                    >
+                    <input type="checkbox" id="remember" style="width:17px; height:17px; cursor:pointer; accent-color:#3b82f6;">
                 </label>
             </div>
-            <button
-                class="menu-btn"
-                onclick="login()"
-                style="
-                    margin-top:0;
-                    height:54px;
-                    border-radius:14px;
-                    font-size:16px;
-                    font-weight:700;
-                    background:linear-gradient(135deg,#2563eb,#3b82f6);
-                    border:none;
-                    color:white;
-                    box-shadow:0 0 25px rgba(59,130,246,0.35);
-                "
-            >
+            <button class="menu-btn" onclick="login()" style="margin-top:0; height:54px; border-radius:14px; font-size:16px; font-weight:700; background:linear-gradient(135deg,#2563eb,#3b82f6); border:none; color:white; box-shadow:0 0 25px rgba(59,130,246,0.35);">
                 ВОЙТИ
             </button>
         </div>
@@ -185,24 +110,22 @@ select:focus {
     <div class="container">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
             <h2>👤 <span id="nickname">Пользователь</span></h2>
-            <button onclick="logout()" style="
-                background:#ef4444;
-                color:white;
-                padding:10px 22px;
-                border:none;
-                border-radius:8px;
-                cursor:pointer;
-                font-weight:700;
-                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
-            ">
+            <button onclick="logout()" style="background:#ef4444; color:white; padding:10px 22px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);">
                 ВЫХОД
             </button>
         </div>
+
         <div class="section-card">
             <div class="section-header">🧮 АККАУНТЫ</div>
             <button class="menu-btn" onclick="openPage('addAccountPage')">+ ДОБАВИТЬ АККАУНТ</button>
             <button class="menu-btn" onclick="loadAccounts()">📋 МОИ АККАУНТЫ</button>
         </div>
+
+        <div class="section-card">
+            <div class="section-header">👥 ПОЛЬЗОВАТЕЛИ</div>
+            <button class="menu-btn" onclick="openPage('createUserPage')">+ Создать нового пользователя</button>
+        </div>
+
         <div class="section-card">
             <div class="section-header">🚀 РАССЫЛКИ</div>
             <button class="menu-btn" onclick="loadMailings()">📊 ВСЕ РАССЫЛКИ</button>
@@ -217,41 +140,18 @@ select:focus {
         <h3>Добавление Telegram аккаунта</h3>
        
         <input id="phone" placeholder="+380XXXXXXXXX">
-        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
-            Номер телефона вашего аккаунта
-        </small>
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">Номер телефона вашего аккаунта</small>
         <input id="api_id" placeholder="API ID">
-        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
-            Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
-        </small>
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a></small>
         <input id="api_hash" placeholder="API HASH">
-        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
-            Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
-        </small>
-        <!-- Прокси -->
-        <div style="
-    margin:20px 0;
-    padding:18px;
-    background:#0f172a;
-    border-radius:14px;
-    border:1px solid #1e293b;
-">
-            <label style="
-    display:flex;
-    align-items:center;
-    gap:12px;
-    cursor:pointer;
-    font-size:15px;
-    color:#e2e8f0;
-">
-    <input type="checkbox" id="use_proxy">
-    <span>Использовать прокси</span>
-</label>
-            <input
-    id="proxy"
-    placeholder="socks5://login:password@ip:port"
-    style="margin-top:14px;"
->
+        <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a></small>
+        
+        <div style="margin:20px 0; padding:18px; background:#0f172a; border-radius:14px; border:1px solid #1e293b;">
+            <label style="display:flex; align-items:center; gap:12px; cursor:pointer; font-size:15px; color:#e2e8f0;">
+                <input type="checkbox" id="use_proxy">
+                <span>Использовать прокси</span>
+            </label>
+            <input id="proxy" placeholder="socks5://login:password@ip:port" style="margin-top:14px;">
         </div>
         <button class="menu-btn" onclick="sendCode()">Отправить код</button>
         <div id="codeBlock" style="display:none;">
@@ -300,6 +200,21 @@ select:focus {
         <div id="chatsList"></div>
         <div id="selectedCounter" class="counter">Выбрано чатов: 0</div>
         <button class="menu-btn" style="background:#22c55e; color:white;" onclick="saveMailing()">Сохранить рассылку</button>
+    </div>
+</div>
+
+<!-- CREATE USER PAGE -->
+<div id="createUserPage" class="page">
+    <div class="container">
+        <button class="back-btn" onclick="openPage('dashboard')">← Назад</button>
+        <h3>Создать нового пользователя</h3>
+        
+        <input id="newUsername" placeholder="Логин пользователя">
+        <input id="newPassword" type="password" placeholder="Пароль">
+        
+        <button class="menu-btn" style="background:#22c55e; color:white;" onclick="createNewUser()">Создать пользователя</button>
+        
+        <div id="userResult" style="margin-top:15px; padding:15px; background:#1e293b; border-radius:12px; display:none; color:#4ade80;"></div>
     </div>
 </div>
 
@@ -400,8 +315,7 @@ async function loadAccounts() {
         }
         let html = "";
         d.accounts.forEach(acc => {
-            html += `<div class="section-card"><strong>${acc.phone}</strong>
-                     <button onclick="deleteAccount(${acc.id})" style="float:right;color:#f87171">Удалить</button></div>`;
+            html += `<div class="section-card"><strong>${acc.phone}</strong> <button onclick="deleteAccount(${acc.id})" style="float:right;color:#f87171">Удалить</button></div>`;
         });
         list.innerHTML = html;
     } catch(e) {
@@ -442,8 +356,7 @@ async function loadMailings() {
             <div class="section-card">
                 <strong>${m.name}</strong><br>
                 <small>Аккаунт: ${m.phone} | Отправлено: ${m.sent}</small><br><br>
-                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')"
-                        style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
+                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')" style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
                     ${isActive ? '⏹ Остановить' : '▶ Запустить'}
                 </button>
                 <button onclick="editMailing(${m.id})" style="background:#eab308; padding:8px 14px; margin-left:8px;">Изменить</button>
@@ -477,6 +390,7 @@ async function editMailing(id) {
     currentEditId = id;
     document.getElementById("mailingTitle").textContent = "Редактирование рассылки";
     openPage("createMailingPage");
+    await loadMailingDataForEdit(id);
 }
 
 // ==================== CREATE/EDIT MAILING ====================
@@ -504,13 +418,48 @@ async function loadAccountsForMailing() {
     }
 }
 
+async function loadMailingDataForEdit(id) {
+    try {
+        const res = await fetch(API + "/mailings", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username: currentUser})
+        });
+        const d = await res.json();
+
+        const mailing = d.mailings.find(m => m.id === id);
+        if (!mailing) return alert("Рассылка не найдена");
+
+        document.getElementById("m_name").value = mailing.name || "";
+        document.getElementById("m_text1").value = mailing.text1 || "";
+        document.getElementById("m_text2").value = mailing.text2 || "";
+        document.getElementById("m_text3").value = mailing.text3 || "";
+        document.getElementById("m_interval").value = mailing.interval || 3;
+
+        const select = document.getElementById("m_account");
+        await loadAccountsForMailing();
+
+        setTimeout(() => {
+            select.value = mailing.account_id;
+            if (select.value) loadChatsForMailing();
+        }, 400);
+
+    } catch (e) {
+        console.error(e);
+        alert("Ошибка загрузки данных рассылки");
+    }
+}
+
 async function loadChatsForMailing() {
     const accountId = document.getElementById("m_account").value;
     if (!accountId) return;
+
     selectedChats = [];
     updateCounter();
+
     const chatsList = document.getElementById("chatsList");
     chatsList.innerHTML = `<p class="loading">Загрузка чатов с Telegram...</p>`;
+
     try {
         const res = await fetch(API + "/get_chats", {
             method: "POST",
@@ -527,6 +476,7 @@ async function loadChatsForMailing() {
             chatsList.innerHTML = `<p style="color:#f87171">Чатов не найдено на этом аккаунте</p>`;
             return;
         }
+
         let html = "";
         d.chats.forEach(chat => {
             html += `<div class="chat-item" data-id="${chat.id}" onclick="toggleChat(this)">${chat.title}</div>`;
@@ -567,6 +517,7 @@ function updateCounter() {
 async function saveMailing() {
     const account_id = document.getElementById("m_account").value;
     if (!account_id) return alert("Выберите аккаунт!");
+
     const payload = {
         username: currentUser,
         account_id: parseInt(account_id),
@@ -577,14 +528,17 @@ async function saveMailing() {
         interval: parseInt(document.getElementById("m_interval").value) || 3,
         chats: selectedChats
     };
+
     const url = currentEditId ? "/update_mailing" : "/create_mailing";
     if (currentEditId) payload.id = currentEditId;
+
     const res = await fetch(API + url, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload)
     });
     const d = await res.json();
+
     if (d.status) {
         alert(currentEditId ? "Рассылка обновлена!" : "Рассылка создана!");
         currentEditId = null;
@@ -598,11 +552,51 @@ document.addEventListener("DOMContentLoaded", () => {
     const createPage = document.getElementById("createMailingPage");
     const observer = new MutationObserver(() => {
         if (createPage.classList.contains('active')) {
-            loadAccountsForMailing();
+            if (!currentEditId) {
+                loadAccountsForMailing();
+            }
         }
     });
     observer.observe(createPage, { attributes: true, attributeFilter: ['class'] });
 });
+
+// ==================== CREATE USER FUNCTION ====================
+async function createNewUser() {
+    const username = document.getElementById("newUsername").value.trim();
+    const password = document.getElementById("newPassword").value.trim();
+
+    if (!username || !password) {
+        return alert("Введите логин и пароль!");
+    }
+
+    try {
+        const res = await fetch(API + "/create_user", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+        });
+
+        const d = await res.json();
+
+        const resultDiv = document.getElementById("userResult");
+
+        if (d.status) {
+            resultDiv.style.display = "block";
+            resultDiv.innerHTML = `
+                ✅ Пользователь успешно создан!<br><br>
+                <b>Логин:</b> ${username}<br>
+                <b>Пароль:</b> ${password}
+            `;
+            document.getElementById("newUsername").value = "";
+            document.getElementById("newPassword").value = "";
+        } else {
+            alert(d.message || "Ошибка создания пользователя");
+        }
+    } catch (e) {
+        console.error(e);
+        alert("Не удалось подключиться к серверу");
+    }
+}
 
 // Выход из аккаунта
 function logout() {
