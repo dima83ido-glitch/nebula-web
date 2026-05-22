@@ -4,7 +4,17 @@
 <meta charset="UTF-8">
 <title>NEBULA</title>
 <style>
-    body { background: #0d121d; font-family: 'Inter', sans-serif; color: #e2e8f0; margin:0; padding-bottom: 80px; }
+    * {
+    box-sizing: border-box;
+}
+body {
+    background: #0d121d;
+    font-family: 'Inter', sans-serif;
+    color: #e2e8f0;
+    margin: 0;
+    padding-bottom: 80px;
+    overflow-x: hidden;
+}
     .page { display: none; }
     .page.active { display: block; }
     .container { max-width: 520px; margin: 0 auto; padding: 15px; }
@@ -16,7 +26,34 @@
         width: 100%; padding: 16px; margin: 8px 0; background: #0f172a; border: 1px solid #1e293b;
         color: #93c5fd; border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 16px;
     }
-    input, textarea, select { width: 100%; padding: 14px; margin: 8px 0; background: #0b1120; border: 1px solid #334155; color: white; border-radius: 10px; }
+    input,
+textarea,
+select {
+    width: 100%;
+    padding: 14px;
+    margin: 8px 0;
+    background: #0b1120;
+    border: 1px solid #334155;
+    color: white;
+    border-radius: 10px;
+    outline: none;
+    font-size: 15px;
+}
+input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    margin: 0;
+    padding: 0;
+    accent-color: #3b82f6;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+input:focus,
+textarea:focus,
+select:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 10px rgba(59,130,246,.3);
+}
     textarea { height: 110px; resize: vertical; }
     .back-btn { background:none; border:none; color:#94a3b8; font-size:18px; padding:10px 0; cursor:pointer; }
     .chat-item { cursor: pointer; padding: 12px; }
@@ -24,23 +61,122 @@
     .counter { text-align:center; font-weight:bold; margin:15px 0; color:#60a5fa; }
     .empty { text-align: center; color: #64748b; padding: 40px 20px; font-style: italic; }
     .loading { color: #60a5fa; text-align: center; padding: 20px; }
+    @media (max-width: 600px) {
+    .container {
+        padding: 12px;
+    }
+    .menu-btn {
+        padding: 15px;
+        font-size: 15px;
+    }
+    h2, h3 {
+        font-size: 26px;
+    }
+    input,
+    textarea,
+    select {
+        font-size: 16px;
+    }
+}
 </style>
 </head>
 <body>
-
 <!-- LOGIN -->
 <div id="loginPage" class="page active">
     <div class="container">
-        <h2>NEBULA LOGIN</h2>
-        <input id="loginUsername" placeholder="Имя пользователя">
-        <input id="loginPassword" type="password" placeholder="Пароль">
-        
-        <label style="display:flex; align-items:center; gap:10px; margin:15px 0; cursor:pointer; font-size:15px;">
-            <input type="checkbox" id="remember">
-            <span>Запомнить меня</span>
-        </label>
-        
-        <button class="menu-btn" onclick="login()">Войти</button>
+        <div style="
+            background:#111827;
+            border:1px solid #1e293b;
+            border-radius:20px;
+            padding:28px;
+            margin-top:60px;
+            box-shadow:0 0 40px rgba(0,0,0,0.35);
+        ">
+            <h2 style="
+                margin-top:0;
+                margin-bottom:25px;
+                font-size:30px;
+                font-weight:800;
+                color:#93c5fd;
+                text-align:center;
+                letter-spacing:1px;
+            ">
+                NEBULA LOGIN
+            </h2>
+            <input
+                id="loginUsername"
+                placeholder="Имя пользователя"
+                style="
+                    height:52px;
+                    font-size:15px;
+                    border-radius:14px;
+                    background:#0b1120;
+                    border:1px solid #334155;
+                    padding:0 16px;
+                "
+            >
+            <input
+                id="loginPassword"
+                type="password"
+                placeholder="Пароль"
+                style="
+                    height:52px;
+                    font-size:15px;
+                    border-radius:14px;
+                    background:#0b1120;
+                    border:1px solid #334155;
+                    padding:0 16px;
+                    margin-top:12px;
+                "
+            >
+            <!-- remember -->
+            <div style="
+                display:flex;
+                justify-content:flex-end;
+                margin-top:14px;
+                margin-bottom:20px;
+            ">
+                <label style="
+                    display:flex;
+                    align-items:center;
+                    gap:8px;
+                    cursor:pointer;
+                    color:#cbd5e1;
+                    font-size:14px;
+                    white-space:nowrap;
+                    user-select:none;
+                ">
+                    <span>Запомнить меня</span>
+                    <input
+                        type="checkbox"
+                        id="remember"
+                        style="
+                            width:17px;
+                            height:17px;
+                            cursor:pointer;
+                            accent-color:#3b82f6;
+                        "
+                    >
+                </label>
+            </div>
+            <button
+                class="menu-btn"
+                onclick="login()"
+                style="
+                    margin-top:0;
+                    height:54px;
+                    border-radius:14px;
+                    font-size:16px;
+                    font-weight:700;
+                    background:linear-gradient(135deg,#2563eb,#3b82f6);
+                    border:none;
+                    color:white;
+                    box-shadow:0 0 25px rgba(59,130,246,0.35);
+                "
+            >
+                ВОЙТИ
+            </button>
+        </div>
     </div>
 </div>
 
@@ -49,11 +185,19 @@
     <div class="container">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
             <h2>👤 <span id="nickname">Пользователь</span></h2>
-            <button onclick="logout()" style="background:#ef4444; color:white; padding:10px 22px; border:none; border-radius:8px; cursor:pointer; font-weight:700; box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);">
+            <button onclick="logout()" style="
+                background:#ef4444;
+                color:white;
+                padding:10px 22px;
+                border:none;
+                border-radius:8px;
+                cursor:pointer;
+                font-weight:700;
+                box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+            ">
                 ВЫХОД
             </button>
         </div>
-
         <div class="section-card">
             <div class="section-header">🧮 АККАУНТЫ</div>
             <button class="menu-btn" onclick="openPage('addAccountPage')">+ ДОБАВИТЬ АККАУНТ</button>
@@ -71,33 +215,45 @@
     <div class="container">
         <button class="back-btn" onclick="openPage('dashboard')">← Назад</button>
         <h3>Добавление Telegram аккаунта</h3>
-        
+       
         <input id="phone" placeholder="+380XXXXXXXXX">
         <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
             Номер телефона вашего аккаунта
         </small>
-
         <input id="api_id" placeholder="API ID">
         <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
             Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
         </small>
-
         <input id="api_hash" placeholder="API HASH">
         <small style="color:#64748b; display:block; margin-top:-8px; margin-bottom:12px;">
             Найти его можете на <a href="https://my.telegram.org" target="_blank" style="color:#60a5fa;">my.telegram.org</a>
         </small>
-
         <!-- Прокси -->
-        <div style="margin:20px 0; padding:15px; background:#1e293b; border-radius:12px; border:1px solid #334155;">
-            <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:15px;">
-                <input type="checkbox" id="use_proxy">
-                <span>Использовать прокси</span>
-            </label>
-            <input id="proxy" placeholder="http://user:pass@ip:port или socks5://..." style="margin-top:10px; width:100%;">
+        <div style="
+    margin:20px 0;
+    padding:18px;
+    background:#0f172a;
+    border-radius:14px;
+    border:1px solid #1e293b;
+">
+            <label style="
+    display:flex;
+    align-items:center;
+    gap:12px;
+    cursor:pointer;
+    font-size:15px;
+    color:#e2e8f0;
+">
+    <input type="checkbox" id="use_proxy">
+    <span>Использовать прокси</span>
+</label>
+            <input
+    id="proxy"
+    placeholder="socks5://login:password@ip:port"
+    style="margin-top:14px;"
+>
         </div>
-
         <button class="menu-btn" onclick="sendCode()">Отправить код</button>
-
         <div id="codeBlock" style="display:none;">
             <input id="code" placeholder="Код из Telegram">
             <button class="menu-btn" onclick="verifyCode()">Подтвердить код</button>
@@ -132,26 +288,23 @@
     <div class="container">
         <button class="back-btn" onclick="openPage('mailingsPage')">← Назад</button>
         <h3 id="mailingTitle">Новая рассылка</h3>
-        
+       
         <input id="m_name" placeholder="Название рассылки">
         <textarea id="m_text1" placeholder="Текст 1"></textarea>
         <textarea id="m_text2" placeholder="Текст 2 (опционально)"></textarea>
         <textarea id="m_text3" placeholder="Текст 3 (опционально)"></textarea>
         <input id="m_interval" type="number" value="3" placeholder="Интервал (секунды)">
-
         <select id="m_account" onchange="loadChatsForMailing()"></select>
         <button class="menu-btn" onclick="selectAllChats()">Выбрать все чаты</button>
-        
+       
         <div id="chatsList"></div>
         <div id="selectedCounter" class="counter">Выбрано чатов: 0</div>
-
         <button class="menu-btn" style="background:#22c55e; color:white;" onclick="saveMailing()">Сохранить рассылку</button>
     </div>
 </div>
 
 <script>
 const API = "https://nebula-web-nwdf.onrender.com";
-
 let currentUser = "", auth_id = "", currentEditId = null;
 let selectedChats = [];
 
@@ -166,7 +319,6 @@ async function login() {
     const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
     if (!username || !password) return alert("Введите логин и пароль!");
-
     try {
         const res = await fetch(API + "/login", {
             method: "POST",
@@ -174,7 +326,6 @@ async function login() {
             body: JSON.stringify({ username, password, remember: true })
         });
         const d = await res.json();
-
         if (d.status) {
             currentUser = username;
             document.getElementById("nickname").innerText = username;
@@ -191,7 +342,6 @@ async function login() {
 async function sendCode() {
     const proxy = document.getElementById("proxy").value.trim();
     const useProxy = document.getElementById("use_proxy").checked;
-
     const res = await fetch(API + "/send_code", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -244,15 +394,13 @@ async function loadAccounts() {
         });
         const d = await res.json();
         const list = document.getElementById("accountsList");
-
         if (!d.accounts || d.accounts.length === 0) {
             list.innerHTML = `<div class="empty">Нет добавленных аккаунтов</div>`;
             return;
         }
-
         let html = "";
         d.accounts.forEach(acc => {
-            html += `<div class="section-card"><strong>${acc.phone}</strong> 
+            html += `<div class="section-card"><strong>${acc.phone}</strong>
                      <button onclick="deleteAccount(${acc.id})" style="float:right;color:#f87171">Удалить</button></div>`;
         });
         list.innerHTML = html;
@@ -264,8 +412,8 @@ async function loadAccounts() {
 async function deleteAccount(id) {
     if (confirm("Удалить аккаунт?")) {
         await fetch(API + "/delete_account", {
-            method:"POST", 
-            headers:{"Content-Type":"application/json"}, 
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
             body:JSON.stringify({account_id:id})
         });
         loadAccounts();
@@ -283,12 +431,10 @@ async function loadMailings() {
         });
         const d = await res.json();
         const container = document.getElementById("mailingsList");
-
         if (!d.mailings || d.mailings.length === 0) {
             container.innerHTML = `<div class="empty">Пока нет рассылок</div>`;
             return;
         }
-
         let html = "";
         d.mailings.forEach(m => {
             const isActive = m.status === "active";
@@ -296,7 +442,7 @@ async function loadMailings() {
             <div class="section-card">
                 <strong>${m.name}</strong><br>
                 <small>Аккаунт: ${m.phone} | Отправлено: ${m.sent}</small><br><br>
-                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')" 
+                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')"
                         style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
                     ${isActive ? '⏹ Остановить' : '▶ Запустить'}
                 </button>
@@ -337,7 +483,6 @@ async function editMailing(id) {
 async function loadAccountsForMailing() {
     const select = document.getElementById("m_account");
     select.innerHTML = '<option value="">Загрузка аккаунтов...</option>';
-
     try {
         const res = await fetch(API + "/accounts", {
             method: "POST",
@@ -345,7 +490,7 @@ async function loadAccountsForMailing() {
             body: JSON.stringify({username: currentUser})
         });
         const d = await res.json();
-        
+       
         select.innerHTML = '<option value="">Выберите аккаунт</option>';
         if (d.accounts && d.accounts.length > 0) {
             d.accounts.forEach(acc => {
@@ -362,32 +507,26 @@ async function loadAccountsForMailing() {
 async function loadChatsForMailing() {
     const accountId = document.getElementById("m_account").value;
     if (!accountId) return;
-
     selectedChats = [];
     updateCounter();
-
     const chatsList = document.getElementById("chatsList");
     chatsList.innerHTML = `<p class="loading">Загрузка чатов с Telegram...</p>`;
-
     try {
         const res = await fetch(API + "/get_chats", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
             body: JSON.stringify({account_id: parseInt(accountId)})
         });
-        
+       
         const d = await res.json();
-
         if (!d.status) {
             chatsList.innerHTML = `<p style="color:#f87171">Ошибка: ${d.message || 'Не удалось загрузить чаты'}</p>`;
             return;
         }
-
         if (!d.chats || d.chats.length === 0) {
             chatsList.innerHTML = `<p style="color:#f87171">Чатов не найдено на этом аккаунте</p>`;
             return;
         }
-
         let html = "";
         d.chats.forEach(chat => {
             html += `<div class="chat-item" data-id="${chat.id}" onclick="toggleChat(this)">${chat.title}</div>`;
@@ -428,7 +567,6 @@ function updateCounter() {
 async function saveMailing() {
     const account_id = document.getElementById("m_account").value;
     if (!account_id) return alert("Выберите аккаунт!");
-
     const payload = {
         username: currentUser,
         account_id: parseInt(account_id),
@@ -439,17 +577,14 @@ async function saveMailing() {
         interval: parseInt(document.getElementById("m_interval").value) || 3,
         chats: selectedChats
     };
-
     const url = currentEditId ? "/update_mailing" : "/create_mailing";
     if (currentEditId) payload.id = currentEditId;
-
     const res = await fetch(API + url, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify(payload)
     });
     const d = await res.json();
-
     if (d.status) {
         alert(currentEditId ? "Рассылка обновлена!" : "Рассылка создана!");
         currentEditId = null;
