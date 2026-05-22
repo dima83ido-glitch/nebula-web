@@ -121,7 +121,8 @@ select:focus {
             <button class="menu-btn" onclick="loadAccounts()">📋 МОИ АККАУНТЫ</button>
         </div>
 
-        <div class="section-card">
+        <!-- Блок только для админа -->
+        <div id="adminPanel" class="section-card" style="display: none;">
             <div class="section-header">👥 ПОЛЬЗОВАТЕЛИ</div>
             <button class="menu-btn" onclick="openPage('createUserPage')">+ Создать нового пользователя</button>
         </div>
@@ -234,6 +235,7 @@ async function login() {
     const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
     if (!username || !password) return alert("Введите логин и пароль!");
+
     try {
         const res = await fetch(API + "/login", {
             method: "POST",
@@ -241,9 +243,18 @@ async function login() {
             body: JSON.stringify({ username, password, remember: true })
         });
         const d = await res.json();
+
         if (d.status) {
             currentUser = username;
             document.getElementById("nickname").innerText = username;
+            
+            // Показываем панель создания пользователей только админу
+            if (d.role === "admin") {
+                document.getElementById("adminPanel").style.display = "block";
+            } else {
+                document.getElementById("adminPanel").style.display = "none";
+            }
+
             openPage("dashboard");
         } else {
             alert(d.message || "Ошибка входа");
@@ -252,6 +263,7 @@ async function login() {
         alert("Не удалось подключиться к серверу");
     }
 }
+
 
 // ==================== ADD ACCOUNT ====================
 async function sendCode() {
