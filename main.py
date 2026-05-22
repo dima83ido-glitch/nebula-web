@@ -75,7 +75,6 @@ async def create_admin():
                 ("admin", hashed, "admin")
             )
             await db.commit()
-    print("✅ Админ создан → admin / orion123")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
@@ -140,6 +139,7 @@ async def send_code(request):
         if not user:
             return json_response(False, "Пользователь не найден")
 
+        # Проверка лимита аккаунтов
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
             count = (await cursor.fetchone())[0]
@@ -155,6 +155,7 @@ async def send_code(request):
         clean_phone = ''.join(filter(str.isdigit, phone))
         session_name = f"sessions/{username}_{clean_phone}"
 
+        # Создаём клиент с поддержкой прокси
         client = Client(
             session_name, 
             api_id=api_id, 
@@ -246,7 +247,7 @@ async def save_account(auth, tg_username):
             await db.execute("""
                 INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], auth.get("proxy"), session_name))
+            """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], None, session_name))
             await db.commit()
             print(f"Аккаунт сохранён: {auth['phone']} | Всего: {count+1}/{MAX_ACCOUNTS}")
     except Exception as e:
@@ -289,38 +290,58 @@ async def delete_account(request):
     except Exception as e:
         return json_response(False, str(e))
 
-# ========================= GET CHATS =========================
+# ========================= GET CHATS FIX =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+            cursor = await db.execute(
+                "SELECT * FROM accounts WHERE id=?",
+                (account_id,)
+            )
             acc = await cursor.fetchone()
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
 
+        session_name = f"sessions/{acc[6]}"
+
         client = Client(
-            f"sessions/{acc[6]}",
+            session_name,
             api_id=int(acc[3]),
-            api_hash=acc[4]
+            api_hash=acc[4],
+            in_memory=False
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
+
         await client.start()
 
+        me = await client.get_me()
+        print(f"✅ Авторизация успешна: {me.id}")
+
         chats = []
-        async for dialog in client.get_dialogs(limit=MAX_CHATS):
+
+        async for dialog in client.get_dialogs():
             try:
                 chat = dialog.chat
-                title = chat.title or chat.first_name or chat.username or "Без названия"
-                chats.append({"id": str(chat.id), "title": title})
-            except:
-                pass
+                title = (
+                    getattr(chat, "title", None)
+                    or getattr(chat, "first_name", None)
+                    or getattr(chat, "username", None)
+                    or "Без названия"
+                )
+                chats.append({
+                    "id": str(chat.id),
+                    "title": title
+                })
+            except Exception as e:
+                print("dialog parse error:", e)
 
         await client.stop()
+
         print(f"✅ Загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
 
