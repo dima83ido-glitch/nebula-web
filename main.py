@@ -134,6 +134,31 @@ async def login(request):
     except Exception as e:
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
+    
+    # ========================= CREATE USER (для админа) =========================
+async def create_user(request):
+    try:
+        data = await request.json()
+        username = data.get("username")
+        password = data.get("password")
+
+        if not username or not password:
+            return json_response(False, "Введите логин и пароль")
+
+        async with aiosqlite.connect(DATABASE) as db:
+            cursor = await db.execute("SELECT * FROM users WHERE username=?", (username,))
+            if await cursor.fetchone():
+                return json_response(False, "Пользователь с таким логином уже существует")
+
+            hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+            await db.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')", 
+                           (username, hashed))
+            await db.commit()
+
+        return json_response(True, "Пользователь создан", login=username, password=password)
+    except Exception as e:
+        print("create_user error:", str(e))
+        return json_response(False, "Ошибка при создании пользователя")
 
 # ========================= ACCOUNT =========================
 async def send_code(request):
@@ -488,6 +513,7 @@ async def create_app():
         "/delete_mailing": delete_mailing,
         "/update_mailing": update_mailing,
         "/toggle_mailing": toggle_mailing,
+        "/create_user": create_user,
     }
 
     for path, handler in routes.items():
