@@ -26,6 +26,12 @@ active_mailings = {}
 # ========================= DATABASE =========================
 async def init_db():
     async with aiosqlite.connect(DATABASE) as db:
+        # === ИСПРАВЛЕНИЕ "database is locked" ===
+        await db.execute("PRAGMA journal_mode = WAL;")
+        await db.execute("PRAGMA busy_timeout = 30000;")
+        await db.execute("PRAGMA cache_size = -64000;")
+        await db.execute("PRAGMA synchronous = NORMAL;")
+
         await db.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -291,64 +297,46 @@ async def delete_account(request):
         return json_response(False, str(e))
 
 # ========================= GET CHATS FIX =========================
+# ========================= GET CHATS =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT * FROM accounts WHERE id=?",
-                (account_id,)
-            )
+            await db.execute("PRAGMA busy_timeout = 30000;")   # Дополнительная защита
+            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
 
-        session_name = f"sessions/{acc[6]}"
-
         client = Client(
-            session_name,
+            f"sessions/{acc[6]}",
             api_id=int(acc[3]),
             api_hash=acc[4],
             in_memory=False
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
-
         await client.start()
 
-        me = await client.get_me()
-        print(f"✅ Авторизация успешна: {me.id}")
-
         chats = []
-
-        async for dialog in client.get_dialogs():
+        async for dialog in client.get_dialogs(limit=MAX_CHATS):
             try:
                 chat = dialog.chat
-                title = (
-                    getattr(chat, "title", None)
-                    or getattr(chat, "first_name", None)
-                    or getattr(chat, "username", None)
-                    or "Без названия"
-                )
-                chats.append({
-                    "id": str(chat.id),
-                    "title": title
-                })
-            except Exception as e:
-                print("dialog parse error:", e)
+                title = chat.title or chat.first_name or chat.username or "Без названия"
+                chats.append({"id": str(chat.id), "title": title})
+            except:
+                pass
 
         await client.stop()
-
         print(f"✅ Загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
 
     except Exception as e:
         print("GET CHATS ERROR:", str(e))
         return json_response(False, str(e))
-
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
