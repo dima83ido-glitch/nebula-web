@@ -235,13 +235,13 @@ async def verify_code(request):
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
             await save_account(auth, me.username)
-            await client.disconnect()        # ← Изменено
+            await client.disconnect()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
             return json_response(True, "Требуется 2FA пароль", need_password=True)
         except Exception as e:
-            await client.disconnect()        # ← Добавлено на случай ошибки
+            await client.disconnect()
             return json_response(False, f"Ошибка: {str(e)}")
     except Exception as e:
         return json_response(False, "Ошибка сервера")
@@ -262,13 +262,15 @@ async def verify_password(request):
             await client.check_password(password)
             me = await client.get_me()
             await save_account(auth, me.username)
-            await client.disconnect()        # ← Изменено
+            await client.disconnect()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except Exception as e:
-            await client.disconnect()        # ← Добавлено
+            print("verify_password error:", str(e))
+            await client.disconnect()
             return json_response(False, f"Ошибка 2FA: {str(e)}")
     except Exception as e:
+        print("verify_password server error:", str(e))
         return json_response(False, "Ошибка сервера")
 
 async def save_account(auth, tg_username):
