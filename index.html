@@ -121,7 +121,6 @@ select:focus {
             <button class="menu-btn" onclick="loadAccounts()">📋 МОИ АККАУНТЫ</button>
         </div>
 
-        <!-- Блок только для админа -->
         <div id="adminPanel" class="section-card" style="display: none;">
             <div class="section-header">👥 ПОЛЬЗОВАТЕЛИ</div>
             <button class="menu-btn" onclick="openPage('createUserPage')">+ Создать нового пользователя</button>
@@ -248,7 +247,6 @@ async function login() {
             currentUser = username;
             document.getElementById("nickname").innerText = username;
             
-            // Показываем панель создания пользователей только админу
             if (d.role === "admin") {
                 document.getElementById("adminPanel").style.display = "block";
             } else {
@@ -263,7 +261,6 @@ async function login() {
         alert("Не удалось подключиться к серверу");
     }
 }
-
 
 // ==================== ADD ACCOUNT ====================
 async function sendCode() {
@@ -398,13 +395,6 @@ async function deleteMailing(id) {
     loadMailings();
 }
 
-async function editMailing(id) {
-    currentEditId = id;
-    document.getElementById("mailingTitle").textContent = "Редактирование рассылки";
-    openPage("createMailingPage");
-    await loadMailingDataForEdit(id);
-}
-
 // ==================== CREATE/EDIT MAILING ====================
 async function loadAccountsForMailing() {
     const select = document.getElementById("m_account");
@@ -430,6 +420,13 @@ async function loadAccountsForMailing() {
     }
 }
 
+async function editMailing(id) {
+    currentEditId = id;
+    document.getElementById("mailingTitle").textContent = "Редактирование рассылки";
+    openPage("createMailingPage");
+    await loadMailingDataForEdit(id);
+}
+
 async function loadMailingDataForEdit(id) {
     try {
         const res = await fetch(API + "/mailings", {
@@ -453,7 +450,9 @@ async function loadMailingDataForEdit(id) {
 
         setTimeout(() => {
             select.value = mailing.account_id;
-            if (select.value) loadChatsForMailing();
+            if (select.value) {
+                loadChatsForMailing();
+            }
         }, 400);
 
     } catch (e) {
