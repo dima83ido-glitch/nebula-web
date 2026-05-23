@@ -1,4 +1,6 @@
 import os
+os.environ["PYTHONASYNCIODEBUG"] = "0"
+os.environ["SQLITE_BUSY_TIMEOUT"] = "30000"
 os.environ["PYROGRAM_COMPILER"] = "0"
 
 import asyncio
@@ -25,7 +27,10 @@ active_mailings = {}
 
 # ========================= DATABASE =========================
 async def init_db():
-    async with aiosqlite.connect(DATABASE) as db:
+    async with aiosqlite.connect(
+    DATABASE,
+    timeout=30
+) as db:
         # === ИСПРАВЛЕНИЕ "database is locked" ===
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
@@ -396,17 +401,26 @@ async def delete_session(request):
         return json_response(False, str(e))
     
 # ========================= GET CHATS =========================
+# ========================= GET CHATS =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
 
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT * FROM accounts WHERE id=?",
-                (account_id,)
-            )
-            acc = await cursor.fetchone()
+        # ===== ПОЛНОСТЬЮ ЗАКРЫВАЕМ SQLITE =====
+        db = await aiosqlite.connect(DATABASE)
+
+        cursor = await db.execute(
+            "SELECT * FROM accounts WHERE id=?",
+            (account_id,)
+        )
+
+        acc = await cursor.fetchone()
+
+        await cursor.close()
+        await db.close()
+
+        # ===== SQLITE УЖЕ ЗАКРЫТ =====
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
@@ -421,7 +435,8 @@ async def get_chats(request):
             device_model="NEBULA",
             system_version="Android",
             app_version="1.0",
-            lang_code="ru"
+            lang_code="ru",
+            workers=1
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
@@ -429,24 +444,29 @@ async def get_chats(request):
         try:
             await client.start()
 
-            # ПРОВЕРКА СЕССИИ
             me = await client.get_me()
 
             if not me:
                 await client.stop()
                 return json_response(
                     False,
-                    "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново."
+                    "Сессия Telegram недействительна"
                 )
 
         except AuthKeyUnregistered:
             return json_response(
                 False,
-                "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново."
+                "Сессия Telegram недействительна"
             )
 
         except Exception as e:
             print("AUTH ERROR:", str(e))
+
+            try:
+                await client.stop()
+            except:
+                pass
+
             return json_response(False, f"Ошибка авторизации: {str(e)}")
 
         chats = []
