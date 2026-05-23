@@ -397,56 +397,75 @@ async def delete_session(request):
 
 # ========================= GET CHATS FIX =========================
 # ========================= GET CHATS =========================
+# ========================= GET CHATS =========================
 async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
-        
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
-            acc = await cursor.fetchone()
-            if not acc:
-                return json_response(False, "Аккаунт не найден")
 
-        session_path = f"sessions/{acc[6]}"
-        
-        # Пересоздаём клиент каждый раз с правильными параметрами
+        async with aiosqlite.connect(DATABASE) as db:
+            await db.execute("PRAGMA busy_timeout = 30000;")
+
+            cursor = await db.execute(
+                "SELECT * FROM accounts WHERE id=?",
+                (account_id,)
+            )
+
+            acc = await cursor.fetchone()
+
+        if not acc:
+            return json_response(False, "Аккаунт не найден")
+
         client = Client(
-            session_path,
+            f"sessions/{acc[6]}",
             api_id=int(acc[3]),
             api_hash=acc[4],
-            proxy=acc[5] if acc[5] else None,
-            device_model="NEBULA",
-            system_version="11.0",
-            app_version="1.0",
-            lang_code="ru"
+            in_memory=False
         )
 
-        await client.connect()
-        if not await client.is_user_authorized():
-            # Если сессия битая — возвращаем ошибку
-            await client.disconnect()
-            return json_response(False, "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново.")
+        try:
+            print(f"🔄 Подключение к аккаунту {acc[2]}")
+            await client.start()
+
+        except AuthKeyUnregistered:
+            return json_response(
+                False,
+                "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново."
+            )
+
+        except Exception as e:
+            return json_response(False, f"Ошибка авторизации: {str(e)}")
 
         chats = []
-        async for dialog in client.get_dialogs(limit=15000):
-            chat = dialog.chat
-            if chat.type in ["group", "supergroup", "channel", "private"]:
+
+        async for dialog in client.get_dialogs(limit=MAX_CHATS):
+            try:
+                chat = dialog.chat
+
+                title = (
+                    chat.title
+                    or chat.first_name
+                    or chat.username
+                    or "Без названия"
+                )
+
                 chats.append({
                     "id": str(chat.id),
-                    "title": chat.title or chat.first_name or chat.username or f"ID: {chat.id}"
+                    "title": title
                 })
 
-        await client.disconnect()
+            except:
+                pass
 
-        print(f"✅ Загружено {len(chats)} чатов для аккаунта {acc[2]}")
+        await client.stop()
+
+        print(f"✅ Загружено {len(chats)} чатов")
+
         return json_response(True, chats=chats)
 
     except Exception as e:
-        print("get_chats ERROR:", str(e))
-        import traceback
-        traceback.print_exc()
-        return json_response(False, f"Ошибка: {str(e)}")
+        print("GET CHATS ERROR:", str(e))
+        return json_response(False, str(e))
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
@@ -518,10 +537,18 @@ async def list_mailings(request):
         mailings = []
         for r in rows:
             mailings.append({
-                "id": r[0], "name": r[3], "status": r[9], "sent": r[10], "phone": r[11],
-                "text1": r[4], "text2": r[5], "text3": r[6], "interval": r[7],
-                "chats": json.loads(r[8]) if r[8] else []
-            })
+    "id": r[0],
+    "account_id": r[2],
+    "name": r[3],
+    "status": r[9],
+    "sent": r[10],
+    "phone": r[11],
+    "text1": r[4],
+    "text2": r[5],
+    "text3": r[6],
+    "interval": r[7],
+    "chats": json.loads(r[8]) if r[8] else []
+})
         return json_response(True, mailings=mailings)
     except Exception as e:
         print("list_mailings error:", str(e))
