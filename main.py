@@ -10,7 +10,7 @@ import bcrypt
 import aiosqlite
 from aiohttp import web
 import aiohttp_cors
-from pyrogram import Client
+from pyrogram import Client, client
 from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered
 
 # ========================= CONFIG =========================
@@ -502,40 +502,90 @@ async def get_chats(request):
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     while True:
+        client = None
+
         try:
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
+
+                cursor = await db.execute(
+                    "SELECT * FROM mailings WHERE id=?",
+                    (mailing_id,)
+                )
+
                 mailing = await cursor.fetchone()
+
                 if not mailing or mailing[9] != "active":
                     await asyncio.sleep(5)
                     continue
 
-                acc_cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
+                acc_cursor = await db.execute(
+                    "SELECT * FROM accounts WHERE id=?",
+                    (mailing[2],)
+                )
+
                 account = await acc_cursor.fetchone()
 
-                client = Client(f"sessions/{account[6]}", api_id=int(account[3]), api_hash=account[4])
-                await client.connect()
+            # DB ЗАКРЫТА
 
-                chats = json.loads(mailing[8])
-                texts = [mailing[4], mailing[5], mailing[6]]
-                sent = mailing[10]
+            client = Client(
+                f"sessions/{account[6]}",
+                api_id=int(account[3]),
+                api_hash=account[4],
+                workers=1,
+                no_updates=True
+            )
 
-                for chat_id in chats:
-                    try:
-                        text = texts[(sent // 50) % 3] or texts[0]
-                        await client.send_message(int(chat_id), text)
-                        sent += 1
-                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
+            await client.start()
+
+            chats = json.loads(mailing[8])
+
+            texts = [
+                mailing[4],
+                mailing[5],
+                mailing[6]
+            ]
+
+            sent = mailing[10]
+
+            for chat_id in chats:
+
+                try:
+                    text = texts[(sent // 50) % 3] or texts[0]
+
+                    await client.send_message(
+                        int(chat_id),
+                        text
+                    )
+
+                    sent += 1
+
+                    async with aiosqlite.connect(DATABASE) as db:
+                        await db.execute(
+                            "UPDATE mailings SET sent_count=? WHERE id=?",
+                            (sent, mailing_id)
+                        )
                         await db.commit()
-                    except FloodWait as e:
-                        await asyncio.sleep(e.value)
-                    except Exception:
-                        pass
-                    await asyncio.sleep(mailing[7])
 
-                await client.disconnect()
-        except Exception:
+                except FloodWait as e:
+                    await asyncio.sleep(e.value)
+
+                except Exception as e:
+                    print("SEND ERROR:", str(e))
+
+                await asyncio.sleep(mailing[7])
+
+        except Exception as e:
+            print("WORKER ERROR:", str(e))
             await asyncio.sleep(10)
+
+        finally:
+            if client:
+                try:
+                    await client.stop()
+                except:
+                    pass
+
+            await asyncio.sleep(1)
 
 async def create_mailing(request):
     try:
