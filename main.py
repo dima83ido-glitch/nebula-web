@@ -394,9 +394,7 @@ async def delete_session(request):
     except Exception as e:
         print("delete_session error:", str(e))
         return json_response(False, str(e))
-
-# ========================= GET CHATS FIX =========================
-# ========================= GET CHATS =========================
+    
 # ========================= GET CHATS =========================
 async def get_chats(request):
     try:
@@ -404,28 +402,42 @@ async def get_chats(request):
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("PRAGMA busy_timeout = 30000;")
-
             cursor = await db.execute(
                 "SELECT * FROM accounts WHERE id=?",
                 (account_id,)
             )
-
             acc = await cursor.fetchone()
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
 
+        session_path = f"sessions/{acc[6]}"
+
         client = Client(
-            f"sessions/{acc[6]}",
+            session_path,
             api_id=int(acc[3]),
             api_hash=acc[4],
-            in_memory=False
+            proxy=acc[5] if acc[5] else None,
+            device_model="NEBULA",
+            system_version="Android",
+            app_version="1.0",
+            lang_code="ru"
         )
 
+        print(f"🔄 Подключение к аккаунту {acc[2]}")
+
         try:
-            print(f"🔄 Подключение к аккаунту {acc[2]}")
             await client.start()
+
+            # ПРОВЕРКА СЕССИИ
+            me = await client.get_me()
+
+            if not me:
+                await client.stop()
+                return json_response(
+                    False,
+                    "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново."
+                )
 
         except AuthKeyUnregistered:
             return json_response(
@@ -434,6 +446,7 @@ async def get_chats(request):
             )
 
         except Exception as e:
+            print("AUTH ERROR:", str(e))
             return json_response(False, f"Ошибка авторизации: {str(e)}")
 
         chats = []
