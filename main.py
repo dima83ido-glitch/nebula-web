@@ -407,20 +407,28 @@ async def get_chats(request):
         data = await request.json()
         account_id = data["account_id"]
 
-        # ===== ПОЛНОСТЬЮ ЗАКРЫВАЕМ SQLITE =====
-        db = await aiosqlite.connect(DATABASE)
+        async with aiosqlite.connect(DATABASE) as db:
 
-        cursor = await db.execute(
-            "SELECT * FROM accounts WHERE id=?",
-            (account_id,)
-        )
+            # ПРОВЕРЯЕМ АКТИВНА ЛИ РАССЫЛКА
+            cursor = await db.execute("""
+                SELECT id FROM mailings
+                WHERE account_id=? AND status='active'
+            """, (account_id,))
 
-        acc = await cursor.fetchone()
+            active = await cursor.fetchone()
 
-        await cursor.close()
-        await db.close()
+            if active:
+                return json_response(
+                    False,
+                    "Остановите активную рассылку перед изменением"
+                )
 
-        # ===== SQLITE УЖЕ ЗАКРЫТ =====
+            cursor = await db.execute(
+                "SELECT * FROM accounts WHERE id=?",
+                (account_id,)
+            )
+
+            acc = await cursor.fetchone()
 
         if not acc:
             return json_response(False, "Аккаунт не найден")
@@ -432,46 +440,18 @@ async def get_chats(request):
             api_id=int(acc[3]),
             api_hash=acc[4],
             proxy=acc[5] if acc[5] else None,
-            device_model="NEBULA",
-            system_version="Android",
-            app_version="1.0",
-            lang_code="ru",
+            no_updates=True,
             workers=1
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
 
-        try:
-            await client.connect()
-
-            me = await client.get_me()
-
-            if not me:
-                await client.disconnect()
-                return json_response(
-                    False,
-                    "Сессия Telegram недействительна"
-                )
-
-        except AuthKeyUnregistered:
-            return json_response(
-                False,
-                "Сессия Telegram недействительна"
-            )
-
-        except Exception as e:
-            print("AUTH ERROR:", str(e))
-
-            try:
-                await client.disconnect()
-            except:
-                pass
-
-            return json_response(False, f"Ошибка авторизации: {str(e)}")
+        await client.connect()
 
         chats = []
 
         async for dialog in client.get_dialogs(limit=MAX_CHATS):
+
             try:
                 chat = dialog.chat
 
@@ -497,8 +477,16 @@ async def get_chats(request):
         return json_response(True, chats=chats)
 
     except Exception as e:
+
         print("GET CHATS ERROR:", str(e))
-        return json_response(False, str(e))
+
+        if "database is locked" in str(e):
+            return json_response(
+                False,
+                "Этот аккаунт уже используется активной рассылкой"
+            )
+
+        return json_response(False, f"Ошибка: {str(e)}")
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
 
