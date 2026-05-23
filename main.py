@@ -316,21 +316,51 @@ async def list_accounts(request):
     except Exception as e:
         print("list_accounts error:", str(e))
         return json_response(False, str(e))
-
+    
 async def delete_account(request):
     try:
         data = await request.json()
+        account_id = data["account_id"]
+
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (data["account_id"],))
+            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
+            
             if acc and acc[0]:
                 session_file = f"sessions/{acc[0]}.session"
                 if os.path.exists(session_file):
                     os.remove(session_file)
-            await db.execute("DELETE FROM accounts WHERE id=?", (data["account_id"],))
+                    print(f"✅ Сессия удалена: {session_file}")
+
+            await db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
             await db.commit()
-        return json_response(True, "Аккаунт удалён")
+
+        return json_response(True, "Аккаунт и сессия успешно удалены")
     except Exception as e:
+        print("delete_account error:", str(e))
+        return json_response(False, str(e))
+
+async def delete_session(request):
+    try:
+        data = await request.json()
+        account_id = data.get("account_id")
+
+        if not account_id:
+            return json_response(False, "Не указан ID аккаунта")
+
+        async with aiosqlite.connect(DATABASE) as db:
+            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
+            acc = await cursor.fetchone()
+
+            if acc and acc[0]:
+                session_file = f"sessions/{acc[0]}.session"
+                if os.path.exists(session_file):
+                    os.remove(session_file)
+                    print(f"✅ Сессия удалена: {session_file}")
+
+        return json_response(True, "Сессия успешно удалена")
+    except Exception as e:
+        print("delete_session error:", str(e))
         return json_response(False, str(e))
 
 # ========================= GET CHATS FIX =========================
@@ -519,6 +549,7 @@ async def create_app():
         "/verify_password": verify_password,
         "/accounts": list_accounts,
         "/delete_account": delete_account,
+        "/delete_session": delete_session,
         "/get_chats": get_chats,
         "/create_mailing": create_mailing,
         "/mailings": list_mailings,
