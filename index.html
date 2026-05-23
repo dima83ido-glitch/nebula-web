@@ -445,15 +445,15 @@ async function loadMailingDataForEdit(id) {
         document.getElementById("m_text3").value = mailing.text3 || "";
         document.getElementById("m_interval").value = mailing.interval || 3;
 
-        const select = document.getElementById("m_account");
         await loadAccountsForMailing();
 
         setTimeout(() => {
+            const select = document.getElementById("m_account");
             select.value = mailing.account_id;
             if (select.value) {
                 loadChatsForMailing();
             }
-        }, 400);
+        }, 500);
 
     } catch (e) {
         console.error(e);
