@@ -478,7 +478,7 @@ async function loadChatsForMailing() {
             body: JSON.stringify({account_id: parseInt(accountId)})
         });
        
-        const d = await res.json();
+                const d = await res.json();
         if (!d.status) {
             chatsList.innerHTML = `<p style="color:#f87171">Ошибка: ${d.message || 'Не удалось загрузить чаты'}</p>`;
             return;
