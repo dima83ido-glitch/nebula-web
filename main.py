@@ -186,11 +186,6 @@ async def send_code(request):
         clean_phone = ''.join(filter(str.isdigit, phone))
         session_name = f"sessions/{username}_{clean_phone}"
 
-        # Удаляем старую сессию, если есть
-        session_file = f"{session_name}.session"
-        if os.path.exists(session_file):
-            os.remove(session_file)
-
         client = Client(
             session_name, 
             api_id=api_id, 
@@ -240,7 +235,7 @@ async def verify_code(request):
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
             await save_account(auth, me.username)
-            await client.disconnect()
+            await client.stop()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
@@ -264,7 +259,7 @@ async def verify_password(request):
         await client.check_password(password)
         me = await client.get_me()
         await save_account(auth, me.username)
-        await client.disconnect()
+        await client.stop()
         del pending_auths[auth_id]
         return json_response(True, "Аккаунт успешно добавлен")
     except Exception as e:
@@ -273,26 +268,48 @@ async def verify_password(request):
 async def save_account(auth, tg_username):
     try:
         user = await get_user(auth["username"])
+
         if not user:
             return
 
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM accounts WHERE owner_id=?",
+                (user[0],)
+            )
+
             count = (await cursor.fetchone())[0]
 
-        if count >= MAX_ACCOUNTS:
-            print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
-            return
+            if count >= MAX_ACCOUNTS:
+                print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
+                return
 
-        session_name = f"{auth['username']}_{auth['phone'].replace('+', '').replace(' ', '')}"
+            # ВАЖНО
+            session_name = auth["session_name"].replace("sessions/", "")
 
-        async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
-                INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name)
+                INSERT INTO accounts (
+                    owner_id,
+                    phone,
+                    api_id,
+                    api_hash,
+                    proxy,
+                    session_name
+                )
                 VALUES (?, ?, ?, ?, ?, ?)
-            """, (user[0], auth["phone"], str(auth["api_id"]), auth["api_hash"], None, session_name))
+            """, (
+                user[0],
+                auth["phone"],
+                str(auth["api_id"]),
+                auth["api_hash"],
+                None,
+                session_name
+            ))
+
             await db.commit()
-            print(f"Аккаунт сохранён: {auth['phone']} | Всего: {count+1}/{MAX_ACCOUNTS}")
+
+        print(f"Аккаунт сохранён: {auth['phone']}")
+
     except Exception as e:
         print("Ошибка save_account:", str(e))
 
@@ -371,8 +388,11 @@ async def get_chats(request):
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("PRAGMA busy_timeout = 30000;")   # Дополнительная защита
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
+            await db.execute("PRAGMA busy_timeout = 30000;")
+            cursor = await db.execute(
+                "SELECT * FROM accounts WHERE id=?",
+                (account_id,)
+            )
             acc = await cursor.fetchone()
 
         if not acc:
@@ -386,19 +406,41 @@ async def get_chats(request):
         )
 
         print(f"🔄 Подключение к аккаунту {acc[2]}")
-        await client.start()
+
+        try:
+            await client.start()
+
+        except AuthKeyUnregistered:
+            return json_response(
+                False,
+                "Сессия Telegram недействительна. Удалите аккаунт и авторизуйтесь заново."
+            )
 
         chats = []
+
         async for dialog in client.get_dialogs(limit=MAX_CHATS):
             try:
                 chat = dialog.chat
-                title = chat.title or chat.first_name or chat.username or "Без названия"
-                chats.append({"id": str(chat.id), "title": title})
+
+                title = (
+                    chat.title
+                    or chat.first_name
+                    or chat.username
+                    or "Без названия"
+                )
+
+                chats.append({
+                    "id": str(chat.id),
+                    "title": title
+                })
+
             except:
                 pass
 
         await client.stop()
+
         print(f"✅ Загружено {len(chats)} чатов")
+
         return json_response(True, chats=chats)
 
     except Exception as e:
