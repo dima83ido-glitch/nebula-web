@@ -598,6 +598,7 @@ async def mailing_worker(mailing_id):
 
         print(f"🛑 Рассылка {mailing_id} остановлена")
 
+
 async def create_mailing(request):
     try:
         data = await request.json()
@@ -682,24 +683,58 @@ async def update_mailing(request):
 async def toggle_mailing(request):
     try:
         data = await request.json()
+
         m_id = data["id"]
         new_status = data["status"]
 
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("UPDATE mailings SET status=? WHERE id=?", (new_status, m_id))
+
+            await db.execute(
+                "UPDATE mailings SET status=? WHERE id=?",
+                (new_status, m_id)
+            )
+
             await db.commit()
 
+        # ===== ЗАПУСК =====
         if new_status == "active":
+
             if m_id not in active_mailings:
-                active_mailings[m_id] = asyncio.create_task(mailing_worker(m_id))
-        elif m_id in active_mailings:
-            active_mailings[m_id].cancel()
-            del active_mailings[m_id]
+
+                task = asyncio.create_task(
+                    mailing_worker(m_id)
+                )
+
+                active_mailings[m_id] = task
+
+        # ===== ОСТАНОВКА =====
+        else:
+
+            if m_id in active_mailings:
+
+                task = active_mailings[m_id]
+
+                task.cancel()
+
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except:
+                    pass
+
+                del active_mailings[m_id]
+
+                print(f"🛑 Рассылка {m_id} полностью остановлена")
+
+                # ДАЕМ SQLITE ОСВОБОДИТЬ LOCK
+                await asyncio.sleep(2)
 
         return json_response(True)
-    except Exception as e:
-        return json_response(False, str(e))
 
+    except Exception as e:
+        print("toggle_mailing ERROR:", str(e))
+        return json_response(False, str(e))
 # ========================= APP =========================
 async def create_app():
     await init_db()
