@@ -405,88 +405,59 @@ async def delete_session(request):
 async def get_chats(request):
     try:
         data = await request.json()
-        account_id = data["account_id"]
-
+        account_id = data.get("account_id")
+        
         async with aiosqlite.connect(DATABASE) as db:
-
-            # ПРОВЕРЯЕМ АКТИВНА ЛИ РАССЫЛКА
-            cursor = await db.execute("""
-                SELECT id FROM mailings
-                WHERE account_id=? AND status='active'
-            """, (account_id,))
-
-            active = await cursor.fetchone()
-
-            if active:
-                return json_response(
-                    False,
-                    "Остановите активную рассылку перед изменением"
-                )
-
-            cursor = await db.execute(
-                "SELECT * FROM accounts WHERE id=?",
-                (account_id,)
-            )
-
+            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
+            if not acc:
+                return json_response(False, "Аккаунт не найден")
 
-        if not acc:
-            return json_response(False, "Аккаунт не найден")
-
-        session_path = f"sessions/{acc[6]}"
+        session_name = acc[6]  # session_name из базы
+        api_id = int(acc[3])
+        api_hash = acc[4]
+        proxy = acc[5]
 
         client = Client(
-            session_path,
-            api_id=int(acc[3]),
-            api_hash=acc[4],
-            proxy=acc[5] if acc[5] else None,
-            no_updates=True,
-            workers=1
+            f"sessions/{session_name}",
+            api_id=api_id,
+            api_hash=api_hash,
+            proxy=proxy,
+            device_model="NEBULA Bot",
+            system_version="10.0",
+            app_version="1.0",
+            lang_code="ru"
         )
-
-        print(f"🔄 Подключение к аккаунту {acc[2]}")
 
         await client.connect()
 
+        # Проверяем авторизацию
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            return json_response(False, "Сессия недействительна. Удалите аккаунт и добавьте заново.")
+
         chats = []
-
-        async for dialog in client.get_dialogs(limit=MAX_CHATS):
-
-            try:
-                chat = dialog.chat
-
-                title = (
-                    chat.title
-                    or chat.first_name
-                    or chat.username
-                    or "Без названия"
-                )
-
+        async for dialog in client.get_dialogs(limit=20000):
+            chat = dialog.chat
+            if chat and chat.type in ["group", "supergroup", "channel", "private"]:
                 chats.append({
                     "id": str(chat.id),
-                    "title": title
+                    "title": chat.title or chat.first_name or chat.username or f"ID: {chat.id}"
                 })
-
-            except:
-                pass
 
         await client.disconnect()
 
-        print(f"✅ Загружено {len(chats)} чатов")
-
+        print(f"✅ Успешно загружено {len(chats)} чатов для аккаунта {acc[2]}")
         return json_response(True, chats=chats)
 
     except Exception as e:
-
-        print("GET CHATS ERROR:", str(e))
-
-        if "database is locked" in str(e):
-            return json_response(
-                False,
-                "Этот аккаунт уже используется активной рассылкой"
-            )
-
-        return json_response(False, f"Ошибка: {str(e)}")
+        error_str = str(e)
+        print("get_chats ERROR:", error_str)
+        
+        if "AUTH_KEY_UNREGISTERED" in error_str:
+            return json_response(False, "Сессия Telegram повреждена. Удалите аккаунт и авторизуйтесь заново.")
+        else:
+            return json_response(False, f"Ошибка: {error_str}")
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
     client = None
