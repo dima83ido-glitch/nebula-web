@@ -231,34 +231,84 @@ function openPage(pageId) {
 
 // ==================== AUTH ====================
 async function login() {
+
     const username = document.getElementById("loginUsername").value.trim();
     const password = document.getElementById("loginPassword").value.trim();
-    if (!username || !password) return alert("Введите логин и пароль!");
+
+    if (!username || !password) {
+        return alert("Введите логин и пароль!");
+    }
 
     try {
+
+        const remember =
+            document.getElementById("remember").checked;
+
         const res = await fetch(API + "/login", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password, remember: true })
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username,
+                password,
+                remember
+            })
         });
+
         const d = await res.json();
 
-        if (d.status) {
-            currentUser = username;
-            document.getElementById("nickname").innerText = username;
-            
-            if (d.role === "admin") {
-                document.getElementById("adminPanel").style.display = "block";
-            } else {
-                document.getElementById("adminPanel").style.display = "none";
-            }
-
-            openPage("dashboard");
-        } else {
-            alert(d.message || "Ошибка входа");
+        if (!d.status) {
+            return alert(d.message || "Ошибка входа");
         }
-    } catch (err) {
-        alert("Не удалось подключиться к серверу");
+
+        currentUser = username;
+
+        localStorage.setItem("nebula_user", username);
+
+        if (remember) {
+
+            localStorage.setItem(
+                "nebula_token",
+                d.token
+            );
+
+            localStorage.setItem(
+                "nebula_remember",
+                "1"
+            );
+
+        } else {
+
+            localStorage.removeItem("nebula_token");
+            localStorage.removeItem("nebula_remember");
+
+        }
+
+        document.getElementById(
+            "nickname"
+        ).innerText = username;
+
+        if (d.role === "admin") {
+
+            document.getElementById(
+                "adminPanel"
+            ).style.display = "block";
+
+        } else {
+
+            document.getElementById(
+                "adminPanel"
+            ).style.display = "none";
+
+        }
+
+        openPage("dashboard");
+
+    } catch (e) {
+
+        alert("Ошибка подключения");
+
     }
 }
 
@@ -368,7 +418,6 @@ async function loadMailings() {
                 <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')" style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
                     ${isActive ? '⏹ Остановить' : '▶ Запустить'}
                 </button>
-                <button onclick="editMailing(${m.id})" style="background:#eab308; padding:8px 14px; margin-left:8px;">Изменить</button>
                 <button onclick="deleteMailing(${m.id})" style="background:#ef4444; padding:8px 14px; margin-left:8px;">Удалить</button>
             </div>`;
         });
@@ -593,7 +642,7 @@ async function createNewUser() {
 
         if (d.status) {
             resultDiv.style.display = "block";
-            resultDiv.innerHTML = `
+            resultDiv.innerHTML += `
                 ✅ Пользователь успешно создан!<br><br>
                 <b>Логин:</b> ${username}<br>
                 <b>Пароль:</b> ${password}
@@ -611,11 +660,73 @@ async function createNewUser() {
 
 // Выход из аккаунта
 function logout() {
-    if (confirm("Выйти из кабинета?")) {
-        currentUser = "";
-        openPage("loginPage");
-    }
+
+    localStorage.removeItem("nebula_token");
+    localStorage.removeItem("nebula_remember");
+
+    currentUser = "";
+
+    openPage("loginPage");
 }
+
+window.onload = async () => {
+
+    const remember =
+        localStorage.getItem("nebula_remember");
+
+    const token =
+        localStorage.getItem("nebula_token");
+
+    const username =
+        localStorage.getItem("nebula_user");
+
+    if (!remember || !token || !username) {
+        return;
+    }
+
+    try {
+
+        const res = await fetch(API + "/auto_login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                token
+            })
+        });
+
+        const d = await res.json();
+
+        if (!d.status) {
+
+            localStorage.clear();
+            return;
+
+        }
+
+        currentUser = username;
+
+        document.getElementById(
+            "nickname"
+        ).innerText = username;
+
+        if (d.role === "admin") {
+
+            document.getElementById(
+                "adminPanel"
+            ).style.display = "block";
+
+        }
+
+        openPage("dashboard");
+
+    } catch(e) {
+
+        console.log(e);
+
+    }
+};
 </script>
 </body>
 </html>
