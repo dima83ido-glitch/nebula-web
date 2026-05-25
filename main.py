@@ -13,6 +13,8 @@ import aiohttp_cors
 from pyrogram import Client, client
 from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered
 
+telegram_clients = {}
+
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
@@ -139,6 +141,66 @@ async def login(request):
     except Exception as e:
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
+    
+async def auto_login(request):
+
+    try:
+
+        data = await request.json()
+
+        token = data.get("token")
+
+        async with aiosqlite.connect(DATABASE) as db:
+
+            cursor = await db.execute(
+                "SELECT * FROM users WHERE remember_token=?",
+                (token,)
+            )
+
+            user = await cursor.fetchone()
+
+        if not user:
+            return json_response(False)
+
+        return json_response(
+            True,
+            role=user[3]
+        )
+
+    except Exception as e:
+
+        return json_response(False, str(e))
+    
+async def get_telegram_client(account):
+
+    account_id = account[0]
+
+    if account_id in telegram_clients:
+
+        client = telegram_clients[account_id]
+
+        try:
+            await client.get_me()
+            return client
+        except:
+            pass
+
+    session_path = f"sessions/{account[6]}"
+
+    client = Client(
+        session_path,
+        api_id=int(account[3]),
+        api_hash=account[4],
+        proxy=account[5] if account[5] else None,
+        no_updates=True,
+        workers=1
+    )
+
+    await client.start()
+
+    telegram_clients[account_id] = client
+
+    return client
     
     # ========================= CREATE USER (для админа) =========================
 async def create_user(request):
@@ -401,27 +463,15 @@ async def delete_session(request):
         return json_response(False, str(e))
     
 # ========================= GET CHATS =========================
-# ========================= GET CHATS =========================
 async def get_chats(request):
+
     try:
+
         data = await request.json()
+
         account_id = data["account_id"]
 
         async with aiosqlite.connect(DATABASE) as db:
-
-            # ПРОВЕРЯЕМ АКТИВНА ЛИ РАССЫЛКА
-            cursor = await db.execute("""
-                SELECT id FROM mailings
-                WHERE account_id=? AND status='active'
-            """, (account_id,))
-
-            active = await cursor.fetchone()
-
-            if active:
-                return json_response(
-                    False,
-                    "Остановите активную рассылку перед изменением"
-                )
 
             cursor = await db.execute(
                 "SELECT * FROM accounts WHERE id=?",
@@ -433,26 +483,14 @@ async def get_chats(request):
         if not acc:
             return json_response(False, "Аккаунт не найден")
 
-        session_path = f"sessions/{acc[6]}"
-
-        client = Client(
-            session_path,
-            api_id=int(acc[3]),
-            api_hash=acc[4],
-            proxy=acc[5] if acc[5] else None,
-            no_updates=True,
-            workers=1
-        )
-
-        print(f"🔄 Подключение к аккаунту {acc[2]}")
-
-        await client.connect()
+        client = await get_telegram_client(acc)
 
         chats = []
 
-        async for dialog in client.get_dialogs(limit=MAX_CHATS):
+        async for dialog in client.get_dialogs():
 
             try:
+
                 chat = dialog.chat
 
                 title = (
@@ -470,33 +508,21 @@ async def get_chats(request):
             except:
                 pass
 
-        await client.disconnect()
-
-        print(f"✅ Загружено {len(chats)} чатов")
-
         return json_response(True, chats=chats)
 
     except Exception as e:
 
         print("GET CHATS ERROR:", str(e))
 
-        if "database is locked" in str(e):
-            return json_response(
-                False,
-                "Этот аккаунт уже используется активной рассылкой"
-            )
-
-        return json_response(False, f"Ошибка: {str(e)}")
+        return json_response(False, str(e))
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
-    client = None
 
     while True:
-        try:
-            async with aiosqlite.connect(DATABASE, timeout=30) as db:
 
-                await db.execute("PRAGMA journal_mode=WAL;")
-                await db.execute("PRAGMA busy_timeout=30000;")
+        try:
+
+            async with aiosqlite.connect(DATABASE) as db:
 
                 cursor = await db.execute(
                     "SELECT * FROM mailings WHERE id=?",
@@ -506,48 +532,21 @@ async def mailing_worker(mailing_id):
                 mailing = await cursor.fetchone()
 
                 if not mailing:
-                    break
+                    return
 
-                # ЕСЛИ ОСТАНОВЛЕНА
                 if mailing[9] != "active":
-
-                    if client:
-                        try:
-                            await client.stop()
-                        except:
-                            pass
-
-                        try:
-                            await client.disconnect()
-                        except:
-                            pass
-
-                        client = None
 
                     await asyncio.sleep(2)
                     continue
 
-                acc_cursor = await db.execute(
+                cursor = await db.execute(
                     "SELECT * FROM accounts WHERE id=?",
                     (mailing[2],)
                 )
 
-                account = await acc_cursor.fetchone()
+                account = await cursor.fetchone()
 
-            # ВНЕ SQLITE
-            if not client:
-
-                session_path = f"sessions/{account[6]}"
-
-                client = Client(
-                    session_path,
-                    api_id=int(account[3]),
-                    api_hash=account[4],
-                    proxy=account[5] if account[5] else None,
-                    no_updates=True
-                )
-
-                await client.start()
+            client = await get_telegram_client(account)
 
             chats = json.loads(mailing[8])
 
@@ -561,38 +560,23 @@ async def mailing_worker(mailing_id):
 
             for chat_id in chats:
 
-                # ПРОВЕРКА ОСТАНОВКИ
-                async with aiosqlite.connect(DATABASE, timeout=30) as db:
+                async with aiosqlite.connect(DATABASE) as db:
 
-                    await db.execute("PRAGMA busy_timeout=30000;")
-
-                    c = await db.execute(
+                    cursor = await db.execute(
                         "SELECT status FROM mailings WHERE id=?",
                         (mailing_id,)
                     )
 
-                    status_row = await c.fetchone()
+                    row = await cursor.fetchone()
 
-                    if not status_row or status_row[0] != "active":
-
-                        if client:
-                            try:
-                                await client.stop()
-                            except:
-                                pass
-
-                            try:
-                                await client.disconnect()
-                            except:
-                                pass
-
-                            client = None
-
-                        break
+                    if not row or row[0] != "active":
+                        return
 
                 try:
 
-                    text = texts[(sent // 50) % 3] or texts[0]
+                    text = texts[
+                        (sent // 50) % 3
+                    ] or texts[0]
 
                     await client.send_message(
                         int(chat_id),
@@ -601,7 +585,7 @@ async def mailing_worker(mailing_id):
 
                     sent += 1
 
-                    async with aiosqlite.connect(DATABASE, timeout=30) as db:
+                    async with aiosqlite.connect(DATABASE) as db:
 
                         await db.execute(
                             "UPDATE mailings SET sent_count=? WHERE id=?",
@@ -611,44 +595,24 @@ async def mailing_worker(mailing_id):
                         await db.commit()
 
                 except FloodWait as e:
+
                     await asyncio.sleep(e.value)
 
                 except Exception as e:
+
                     print("SEND ERROR:", str(e))
 
                 await asyncio.sleep(mailing[7])
 
         except asyncio.CancelledError:
 
-            if client:
-                try:
-                    await client.stop()
-                except:
-                    pass
+            print(f"MAILING {mailing_id} STOPPED")
 
-                try:
-                    await client.disconnect()
-                except:
-                    pass
-
-            break
+            return
 
         except Exception as e:
 
             print("WORKER ERROR:", str(e))
-
-            if client:
-                try:
-                    await client.stop()
-                except:
-                    pass
-
-                try:
-                    await client.disconnect()
-                except:
-                    pass
-
-                client = None
 
             await asyncio.sleep(5)
 
@@ -735,37 +699,25 @@ async def update_mailing(request):
         return json_response(False, str(e))
 
 async def toggle_mailing(request):
+
     try:
+
         data = await request.json()
 
         m_id = data["id"]
-        new_status = data["status"]
+        status = data["status"]
 
-        # ================= DB =================
-        async with aiosqlite.connect(DATABASE, timeout=30) as db:
-
-            await db.execute("PRAGMA journal_mode=WAL;")
-            await db.execute("PRAGMA busy_timeout=30000;")
+        async with aiosqlite.connect(DATABASE) as db:
 
             await db.execute(
                 "UPDATE mailings SET status=? WHERE id=?",
-                (new_status, m_id)
+                (status, m_id)
             )
 
             await db.commit()
 
-        # ================= START =================
-        if new_status == "active":
+        if status == "active":
 
-            # если таск уже есть — удаляем битый
-            if m_id in active_mailings:
-
-                old_task = active_mailings[m_id]
-
-                if old_task.done():
-                    del active_mailings[m_id]
-
-            # запускаем новый
             if m_id not in active_mailings:
 
                 task = asyncio.create_task(
@@ -774,37 +726,27 @@ async def toggle_mailing(request):
 
                 active_mailings[m_id] = task
 
-                print(f"✅ Рассылка {m_id} запущена")
-
-        # ================= STOP =================
         else:
 
             if m_id in active_mailings:
 
                 task = active_mailings[m_id]
 
-                # отменяем таск
                 task.cancel()
 
                 try:
                     await task
-                except asyncio.CancelledError:
+                except:
                     pass
-                except Exception as e:
-                    print("TASK CANCEL ERROR:", str(e))
 
-                # удаляем из памяти
                 del active_mailings[m_id]
-
-                print(f"🛑 Рассылка {m_id} полностью остановлена")
-
-                # ДАЕМ SQLITE/PYROGRAM ОСВОБОДИТЬ SESSION LOCK
-                await asyncio.sleep(3)
 
         return json_response(True)
 
     except Exception as e:
+
         print("toggle_mailing ERROR:", str(e))
+
         return json_response(False, str(e))
 # ========================= APP =========================
 async def create_app():
@@ -827,6 +769,7 @@ async def create_app():
         "/update_mailing": update_mailing,
         "/toggle_mailing": toggle_mailing,
         "/create_user": create_user,
+        "/auto_login": auto_login,
     }
 
     for path, handler in routes.items():
