@@ -173,30 +173,73 @@ async def get_telegram_client(account):
 
     if account_id in telegram_clients:
 
-        client = telegram_clients[account_id]
+        old_client = telegram_clients[account_id]
 
         try:
-            await client.get_me()
-            return client
-        except:
-            pass
+
+            await old_client.get_me()
+
+            return old_client
+
+        except Exception as e:
+
+            print(f"⚠️ OLD CLIENT DEAD: {e}")
+
+            try:
+                await old_client.stop()
+            except:
+                pass
+
+            del telegram_clients[account_id]
 
     session_path = f"sessions/{account[6]}"
 
-    client = Client(
-        session_path,
-        api_id=int(account[3]),
-        api_hash=account[4],
-        proxy=account[5] if account[5] else None,
-        no_updates=True,
-        workers=1
-    )
+    try:
 
-    await client.start()
+        client = Client(
+            session_path,
+            api_id=int(account[3]),
+            api_hash=account[4],
+            proxy=account[5] if account[5] else None,
+            no_updates=True,
+            workers=1
+        )
 
-    telegram_clients[account_id] = client
+        await client.start()
 
-    return client
+        await client.get_me()
+
+        telegram_clients[account_id] = client
+
+        print(f"✅ CLIENT STARTED: {account[1]}")
+
+        return client
+
+    except AuthKeyUnregistered:
+
+        print(f"❌ SESSION DEAD: {account[1]}")
+
+        session_file = f"{session_path}.session"
+
+        try:
+
+            if os.path.exists(session_file):
+
+                os.remove(session_file)
+
+                print(f"🗑 SESSION FILE REMOVED: {session_file}")
+
+        except Exception as e:
+
+            print(f"❌ DELETE SESSION ERROR: {e}")
+
+        raise
+
+    except Exception as e:
+
+        print(f"❌ CLIENT START ERROR: {e}")
+
+        raise
     
     # ========================= CREATE USER (для админа) =========================
 async def create_user(request):
@@ -225,63 +268,139 @@ async def create_user(request):
 
 # ========================= ACCOUNT =========================
 async def send_code(request):
+
     try:
+
         data = await request.json()
+
         username = data["username"]
 
         user = await get_user(username)
+
         if not user:
             return json_response(False, "Пользователь не найден")
 
-        # Проверка лимита аккаунтов
+        # Лимит аккаунтов
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
+
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM accounts WHERE owner_id=?",
+                (user[0],)
+            )
+
             count = (await cursor.fetchone())[0]
 
         if count >= MAX_ACCOUNTS:
-            return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
+
+            return json_response(
+                False,
+                f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов"
+            )
 
         phone = data["phone"].strip()
+
         api_id = int(data["api_id"])
+
         api_hash = data["api_hash"].strip()
+
         proxy = data.get("proxy")
 
-        clean_phone = ''.join(filter(str.isdigit, phone))
-        session_name = f"sessions/{username}_{clean_phone}"
-
-        client = Client(
-            session_name, 
-            api_id=api_id, 
-            api_hash=api_hash,
-            proxy=proxy if proxy else None,
-            device_model="iPhone 15 Pro",
-            system_version="iOS 17.0",
-            app_version="10.6.0",
-            lang_code="ru"
+        clean_phone = ''.join(
+            filter(str.isdigit, phone)
         )
+
+        # НОРМАЛЬНОЕ ИМЯ СЕССИИ
+        session_name = f"{username}_{clean_phone}"
+
+        session_path = f"sessions/{session_name}"
+
+        session_file = f"{session_path}.session"
+
+        # УДАЛЯЕМ БИТУЮ СЕССИЮ
+        if os.path.exists(session_file):
+
+            try:
+
+                os.remove(session_file)
+
+                print(f"🗑 OLD SESSION REMOVED: {session_file}")
+
+            except Exception as e:
+
+                print(f"❌ DELETE SESSION ERROR: {e}")
 
         print(f"🔄 Отправка кода на номер: {phone}")
 
+        client = Client(
+            session_path,
+            api_id=api_id,
+            api_hash=api_hash,
+            proxy=proxy if proxy else None,
+
+            device_model="iPhone 15 Pro",
+            system_version="iOS 17.0",
+            app_version="10.6.0",
+            lang_code="ru",
+
+            no_updates=True,
+            workers=1,
+            sleep_threshold=30
+        )
+
         await client.connect()
+
         sent_code = await client.send_code(phone)
 
         auth_id = str(uuid.uuid4())
+
         pending_auths[auth_id] = {
-            "client": client, 
-            "phone": phone, 
+            "client": client,
+            "phone": phone,
             "api_id": api_id,
-            "api_hash": api_hash, 
+            "api_hash": api_hash,
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
             "session_name": session_name
         }
 
-        print(f"✅ Код успешно отправлен на {phone}")
-        return json_response(True, "Код отправлен", auth_id=auth_id)
+        print(f"✅ Код успешно отправлен: {phone}")
+
+        return json_response(
+            True,
+            "Код отправлен",
+            auth_id=auth_id
+        )
+
+    except FloodWait as e:
+
+        print(f"⏳ FLOODWAIT: {e.value}")
+
+        return json_response(
+            False,
+            f"FloodWait {e.value} сек"
+        )
+
+    except AuthKeyUnregistered:
+
+        print("❌ AUTH KEY UNREGISTERED")
+
+        return json_response(
+            False,
+            "Сессия Telegram повреждена. Попробуйте снова."
+        )
 
     except Exception as e:
-        print("send_code error:", str(e))
-        return json_response(False, f"Ошибка: {str(e)}")
+
+        import traceback
+
+        print(f"❌ send_code ERROR: {str(e)}")
+
+        traceback.print_exc()
+
+        return json_response(
+            False,
+            f"Ошибка: {str(e)}"
+        )
 
 async def verify_code(request):
     try:
