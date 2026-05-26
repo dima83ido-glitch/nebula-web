@@ -1,8 +1,4 @@
 import os
-os.environ["PYTHONASYNCIODEBUG"] = "0"
-os.environ["SQLITE_BUSY_TIMEOUT"] = "30000"
-os.environ["PYROGRAM_COMPILER"] = "0"
-
 import asyncio
 import json
 import uuid
@@ -518,6 +514,8 @@ async def get_chats(request):
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
 
+    print(f"🚀 MAILING STARTED {mailing_id}")
+
     while True:
 
         try:
@@ -532,11 +530,13 @@ async def mailing_worker(mailing_id):
                 mailing = await cursor.fetchone()
 
                 if not mailing:
+                    print("❌ Рассылка удалена")
                     return
 
-                if mailing[9] != "active":
+                status = mailing[9]
 
-                    await asyncio.sleep(2)
+                if status != "active":
+                    await asyncio.sleep(1)
                     continue
 
                 cursor = await db.execute(
@@ -546,19 +546,48 @@ async def mailing_worker(mailing_id):
 
                 account = await cursor.fetchone()
 
-            client = await get_telegram_client(account)
+            if not account:
+                print("❌ Аккаунт не найден")
+                await asyncio.sleep(5)
+                continue
 
-            chats = json.loads(mailing[8])
+            try:
+
+                client = await get_telegram_client(account)
+
+            except AuthKeyUnregistered:
+
+                print("❌ SESSION DEAD")
+
+                async with aiosqlite.connect(DATABASE) as db:
+
+                    await db.execute(
+                        "UPDATE mailings SET status='stopped' WHERE id=?",
+                        (mailing_id,)
+                    )
+
+                    await db.commit()
+
+                return
+
+            chats = json.loads(mailing[8] or "[]")
+
+            if not chats:
+                print("❌ Нет чатов")
+                await asyncio.sleep(5)
+                continue
 
             texts = [
-                mailing[4],
-                mailing[5],
-                mailing[6]
+                mailing[4] or "",
+                mailing[5] or "",
+                mailing[6] or ""
             ]
 
-            sent = mailing[10]
+            interval = mailing[7] or 60
 
-            for chat_id in chats:
+            sent = mailing[10] or 0
+
+            for index, chat_id in enumerate(chats):
 
                 async with aiosqlite.connect(DATABASE) as db:
 
@@ -567,16 +596,22 @@ async def mailing_worker(mailing_id):
                         (mailing_id,)
                     )
 
-                    row = await cursor.fetchone()
+                    current = await cursor.fetchone()
 
-                    if not row or row[0] != "active":
-                        return
+                if not current or current[0] != "active":
+
+                    print(f"🛑 MAILING STOPPED {mailing_id}")
+
+                    return
 
                 try:
 
-                    text = texts[
-                        (sent // 50) % 3
-                    ] or texts[0]
+                    text_index = (sent // 50) % 3
+
+                    text = texts[text_index]
+
+                    if not text:
+                        text = texts[0]
 
                     await client.send_message(
                         int(chat_id),
@@ -594,28 +629,33 @@ async def mailing_worker(mailing_id):
 
                         await db.commit()
 
+                    print(f"✅ SENT {sent} -> {chat_id}")
+
                 except FloodWait as e:
+
+                    print(f"⏳ FLOODWAIT {e.value}")
 
                     await asyncio.sleep(e.value)
 
                 except Exception as e:
 
-                    print("SEND ERROR:", str(e))
+                    print(f"❌ SEND ERROR {chat_id}: {str(e)}")
 
-                await asyncio.sleep(mailing[7])
+                await asyncio.sleep(interval)
+
+            print(f"🔁 Круг рассылки завершён {mailing_id}")
 
         except asyncio.CancelledError:
 
-            print(f"MAILING {mailing_id} STOPPED")
+            print(f"🛑 TASK CANCELLED {mailing_id}")
 
             return
 
         except Exception as e:
 
-            print("WORKER ERROR:", str(e))
+            print(f"❌ WORKER ERROR: {str(e)}")
 
             await asyncio.sleep(5)
-
 
 async def create_mailing(request):
     try:
