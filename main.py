@@ -667,6 +667,8 @@ async def mailing_worker(mailing_id):
 
     print(f"🚀 MAILING STARTED {mailing_id}")
 
+    sent = 0
+
     while True:
 
         try:
@@ -680,15 +682,17 @@ async def mailing_worker(mailing_id):
 
                 mailing = await cursor.fetchone()
 
-                if not mailing:
-                    print("❌ Рассылка удалена")
-                    return
+            if not mailing:
+                print("❌ Рассылка удалена")
+                return
 
-                status = mailing[9]
+            status = mailing[9]
 
-                if status != "active":
-                    await asyncio.sleep(1)
-                    continue
+            if status != "active":
+                await asyncio.sleep(2)
+                continue
+
+            async with aiosqlite.connect(DATABASE) as db:
 
                 cursor = await db.execute(
                     "SELECT * FROM accounts WHERE id=?",
@@ -734,28 +738,25 @@ async def mailing_worker(mailing_id):
                 mailing[6] or ""
             ]
 
-            interval = mailing[7] or 60
+            interval = int(mailing[7] or 3)
 
-            sent = mailing[10] or 0
-
-            for index, chat_id in enumerate(chats):
-
-                async with aiosqlite.connect(DATABASE) as db:
-
-                    cursor = await db.execute(
-                        "SELECT status FROM mailings WHERE id=?",
-                        (mailing_id,)
-                    )
-
-                    current = await cursor.fetchone()
-
-                if not current or current[0] != "active":
-
-                    print(f"🛑 MAILING STOPPED {mailing_id}")
-
-                    return
+            for chat_id in chats:
 
                 try:
+
+                    async with aiosqlite.connect(DATABASE) as db:
+
+                        cursor = await db.execute(
+                            "SELECT status FROM mailings WHERE id=?",
+                            (mailing_id,)
+                        )
+
+                        current = await cursor.fetchone()
+
+                    if not current or current[0] != "active":
+
+                        print(f"🛑 MAILING STOPPED {mailing_id}")
+                        return
 
                     text_index = (sent // 50) % 3
 
@@ -764,10 +765,10 @@ async def mailing_worker(mailing_id):
                     if not text:
                         text = texts[0]
 
-                    await client.send_message(
-                        chat_id,
-                        text
-                    )
+                    if not text.strip():
+                        continue
+
+                    await client.send_message(chat_id, text)
 
                     sent += 1
 
@@ -790,31 +791,22 @@ async def mailing_worker(mailing_id):
 
                 except Exception as e:
 
-                    import traceback
-
-                    print(f"❌ SEND ERROR {chat_id}: {str(e)}")
-
-                    traceback.print_exc()
+                    print(f"❌ SEND ERROR {chat_id}: {e}")
 
                 await asyncio.sleep(interval)
 
-            print(f"🔁 Круг рассылки завершён {mailing_id}")
+            print(f"🔁 ROUND FINISHED {mailing_id}")
 
-            await asyncio.sleep(3)
+            await asyncio.sleep(10)
 
         except asyncio.CancelledError:
 
             print(f"🛑 TASK CANCELLED {mailing_id}")
-
             return
 
         except Exception as e:
 
-            import traceback
-
-            print(f"❌ WORKER ERROR: {str(e)}")
-
-            traceback.print_exc()
+            print(f"❌ WORKER ERROR: {e}")
 
             await asyncio.sleep(5)
 
@@ -919,15 +911,23 @@ async def toggle_mailing(request):
 
         if status == "active":
 
-            if m_id not in active_mailings:
+        if m_id in active_mailings:
 
-                task = asyncio.create_task(
-                    mailing_worker(m_id)
-                )
+         = active_mailings[m_id]
 
-                active_mailings[m_id] = task
+        if old_task.done():
+            del active_mailings[m_id]
 
-        else:
+    if m_id not in active_mailings:
+
+        task = asyncio.create_task(
+            mailing_worker(m_id)
+        )
+
+        active_mailings[m_id] = task
+
+
+     else:
 
             if m_id in active_mailings:
 
