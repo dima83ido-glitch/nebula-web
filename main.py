@@ -497,7 +497,7 @@ async def get_chats(request):
                 )
 
                 chats.append({
-                    "id": str(chat.id),
+                    "id": chat.id,
                     "title": title
                 })
 
@@ -614,7 +614,7 @@ async def mailing_worker(mailing_id):
                         text = texts[0]
 
                     await client.send_message(
-                        int(chat_id),
+                        chat_id,
                         text
                     )
 
@@ -639,11 +639,17 @@ async def mailing_worker(mailing_id):
 
                 except Exception as e:
 
+                    import traceback
+
                     print(f"❌ SEND ERROR {chat_id}: {str(e)}")
+
+                    traceback.print_exc()
 
                 await asyncio.sleep(interval)
 
             print(f"🔁 Круг рассылки завершён {mailing_id}")
+
+            await asyncio.sleep(3)
 
         except asyncio.CancelledError:
 
@@ -653,7 +659,11 @@ async def mailing_worker(mailing_id):
 
         except Exception as e:
 
+            import traceback
+
             print(f"❌ WORKER ERROR: {str(e)}")
+
+            traceback.print_exc()
 
             await asyncio.sleep(5)
 
