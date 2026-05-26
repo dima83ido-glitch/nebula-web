@@ -9,8 +9,6 @@ import aiohttp_cors
 from pyrogram import Client, client
 from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered
 
-telegram_clients = {}
-
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
@@ -169,57 +167,49 @@ async def auto_login(request):
     
 async def get_telegram_client(account):
 
-    account_id = account[0]
-
-    if account_id in telegram_clients:
-
-        old_client = telegram_clients[account_id]
-
-        try:
-
-            await old_client.get_me()
-
-            return old_client
-
-        except Exception as e:
-
-            print(f"⚠️ OLD CLIENT DEAD: {e}")
-
-            try:
-                await old_client.stop()
-            except:
-                pass
-
-            del telegram_clients[account_id]
-
     session_path = f"sessions/{account[6]}"
+
+    session_file = f"{session_path}.session"
+
+    if not os.path.exists(session_file):
+
+        raise Exception("SESSION_FILE_NOT_FOUND")
 
     try:
 
         client = Client(
             session_path,
+
             api_id=int(account[3]),
             api_hash=account[4],
+
             proxy=account[5] if account[5] else None,
+
             no_updates=True,
-            workers=1
+
+            workers=1,
+
+            sleep_threshold=30,
+
+            device_model="iPhone 15 Pro",
+            system_version="iOS 17.0",
+            app_version="10.6.0",
+            lang_code="ru",
+
+            in_memory=False
         )
 
         await client.start()
 
-        await client.get_me()
+        me = await client.get_me()
 
-        telegram_clients[account_id] = client
-
-        print(f"✅ CLIENT STARTED: {account[1]}")
+        print(f"✅ CLIENT OK: {me.id}")
 
         return client
 
     except AuthKeyUnregistered:
 
-        print(f"❌ SESSION DEAD: {account[1]}")
-
-        session_file = f"{session_path}.session"
+        print(f"❌ SESSION DEAD: {session_file}")
 
         try:
 
@@ -227,17 +217,17 @@ async def get_telegram_client(account):
 
                 os.remove(session_file)
 
-                print(f"🗑 SESSION FILE REMOVED: {session_file}")
+                print("🗑 SESSION FILE DELETED")
 
         except Exception as e:
 
-            print(f"❌ DELETE SESSION ERROR: {e}")
+            print(f"❌ DELETE ERROR: {e}")
 
-        raise
+        raise Exception("SESSION_DEAD")
 
     except Exception as e:
 
-        print(f"❌ CLIENT START ERROR: {e}")
+        print(f"❌ CLIENT ERROR: {e}")
 
         raise
     
@@ -417,6 +407,7 @@ async def verify_code(request):
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
             await save_account(auth, me.username)
+            await client.storage.save()
             await client.disconnect()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
@@ -447,6 +438,7 @@ async def verify_password(request):
         
         me = await client.get_me()
         await save_account(auth, me.username)
+        await client.storage.save()
         await client.disconnect()
         del pending_auths[auth_id]
 
@@ -580,6 +572,8 @@ async def delete_session(request):
 # ========================= GET CHATS =========================
 async def get_chats(request):
 
+    client = None
+
     try:
 
         data = await request.json()
@@ -596,9 +590,26 @@ async def get_chats(request):
             acc = await cursor.fetchone()
 
         if not acc:
-            return json_response(False, "Аккаунт не найден")
 
-        client = await get_telegram_client(acc)
+            return json_response(
+                False,
+                "Аккаунт не найден"
+            )
+
+        try:
+
+            client = await get_telegram_client(acc)
+
+        except Exception as e:
+
+            if "SESSION_DEAD" in str(e):
+
+                return json_response(
+                    False,
+                    "Сессия Telegram умерла. Перелогиньте аккаунт."
+                )
+
+            raise
 
         chats = []
 
@@ -623,13 +634,34 @@ async def get_chats(request):
             except:
                 pass
 
-        return json_response(True, chats=chats)
+        return json_response(
+            True,
+            chats=chats
+        )
 
     except Exception as e:
 
-        print("GET CHATS ERROR:", str(e))
+        import traceback
 
-        return json_response(False, str(e))
+        print(f"GET CHATS ERROR: {e}")
+
+        traceback.print_exc()
+
+        return json_response(
+            False,
+            str(e)
+        )
+
+    finally:
+
+        try:
+
+            if client:
+
+                await client.stop()
+
+        except:
+            pass
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
 
