@@ -394,48 +394,194 @@ async function deleteAccount(id) {
 }
 
 // ==================== MAILINGS ====================
+let mailingsInterval = null;
+
 async function loadMailings() {
+
     openPage("mailingsPage");
+
     try {
+
         const res = await fetch(API + "/mailings", {
             method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({username: currentUser})
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: currentUser
+            })
         });
+
         const d = await res.json();
-        const container = document.getElementById("mailingsList");
+
+        const container =
+            document.getElementById("mailingsList");
+
         if (!d.mailings || d.mailings.length === 0) {
-            container.innerHTML = `<div class="empty">Пока нет рассылок</div>`;
+
+            container.innerHTML =
+                `<div class="empty">Пока нет рассылок</div>`;
+
             return;
         }
+
         let html = "";
+
         d.mailings.forEach(m => {
-            const isActive = m.status === "active";
+
+            const isActive =
+                m.status === "active";
+
             html += `
             <div class="section-card">
                 <strong>${m.name}</strong><br>
-                <small>Аккаунт: ${m.phone} | Отправлено: ${m.sent}</small><br><br>
-                <button onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')" style="background:${isActive ? '#ef4444' : '#22c55e'}; color:white; padding:8px 14px;">
+
+                <small>
+                    Аккаунт: ${m.phone}
+                    <br>
+                    Отправлено:
+                    <span id="sent_${m.id}">
+                        ${m.sent}
+                    </span>
+                </small>
+
+                <br><br>
+
+                <button
+                    onclick="toggleMailing(${m.id}, '${isActive ? "stopped" : "active"}')"
+                    style="
+                        background:${isActive ? '#ef4444' : '#22c55e'};
+                        color:white;
+                        padding:8px 14px;
+                    "
+                >
                     ${isActive ? '⏹ Остановить' : '▶ Запустить'}
                 </button>
-                <button onclick="deleteMailing(${m.id})" style="background:#ef4444; padding:8px 14px; margin-left:8px;">Удалить</button>
-            </div>`;
+
+                <button
+                    onclick="editMailing(${m.id})"
+                    style="
+                        background:#3b82f6;
+                        color:white;
+                        padding:8px 14px;
+                        margin-left:8px;
+                    "
+                >
+                    ✏️ Изменить
+                </button>
+
+                <button
+                    onclick="deleteMailing(${m.id})"
+                    style="
+                        background:#ef4444;
+                        color:white;
+                        padding:8px 14px;
+                        margin-left:8px;
+                    "
+                >
+                    Удалить
+                </button>
+            </div>
+            `;
         });
+
         container.innerHTML = html;
+
+        startRealtimeMailings();
+
     } catch(e) {
-        document.getElementById("mailingsList").innerHTML = `<div class="empty">Ошибка загрузки</div>`;
+
+        document.getElementById(
+            "mailingsList"
+        ).innerHTML =
+            `<div class="empty">Ошибка загрузки</div>`;
+
+        console.log(e);
     }
 }
 
+function startRealtimeMailings() {
+
+    if (mailingsInterval) {
+        clearInterval(mailingsInterval);
+    }
+
+    mailingsInterval = setInterval(async () => {
+
+        const page =
+            document.getElementById("mailingsPage");
+
+        if (!page.classList.contains("active")) {
+            return;
+        }
+
+        try {
+
+            const res = await fetch(API + "/mailings", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    username: currentUser
+                })
+            });
+
+            const d = await res.json();
+
+            if (!d.mailings) return;
+
+            d.mailings.forEach(m => {
+
+                const sent =
+                    document.getElementById(
+                        `sent_${m.id}`
+                    );
+
+                if (sent) {
+                    sent.innerText = m.sent;
+                }
+
+            });
+
+        } catch(e) {
+
+            console.log("Realtime error", e);
+
+        }
+
+    }, 2000);
+}
+
 async function toggleMailing(id, status) {
-    const res = await fetch(API + "/toggle_mailing", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({id, status})
-    });
-    const d = await res.json();
-    if (d.status) loadMailings();
-    else alert("Ошибка");
+
+    try {
+
+        const res = await fetch(API + "/toggle_mailing", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                id,
+                status
+            })
+        });
+
+        const d = await res.json();
+
+        if (!d.status) {
+            return alert(d.message || "Ошибка");
+        }
+
+        await loadMailings();
+
+    } catch(e) {
+
+        console.log(e);
+
+        alert("Ошибка подключения");
+    }
 }
 
 async function deleteMailing(id) {
@@ -477,35 +623,90 @@ async function editMailing(id) {
 }
 
 async function loadMailingDataForEdit(id) {
+
     try {
+
         const res = await fetch(API + "/mailings", {
             method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({username: currentUser})
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: currentUser
+            })
         });
+
         const d = await res.json();
 
-        const mailing = d.mailings.find(m => m.id === id);
-        if (!mailing) return alert("Рассылка не найдена");
+        if (!d.status || !d.mailings) {
+            return alert("Не удалось загрузить рассылки");
+        }
 
-        document.getElementById("m_name").value = mailing.name || "";
-        document.getElementById("m_text1").value = mailing.text1 || "";
-        document.getElementById("m_text2").value = mailing.text2 || "";
-        document.getElementById("m_text3").value = mailing.text3 || "";
-        document.getElementById("m_interval").value = mailing.interval || 3;
+        const mailing =
+            d.mailings.find(m => m.id === id);
+
+        if (!mailing) {
+            return alert("Рассылка не найдена");
+        }
+
+        document.getElementById("m_name").value =
+            mailing.name || "";
+
+        document.getElementById("m_text1").value =
+            mailing.text1 || "";
+
+        document.getElementById("m_text2").value =
+            mailing.text2 || "";
+
+        document.getElementById("m_text3").value =
+            mailing.text3 || "";
+
+        document.getElementById("m_interval").value =
+            mailing.interval || 3;
+
+        selectedChats = mailing.chats || [];
 
         await loadAccountsForMailing();
 
-        setTimeout(() => {
-            const select = document.getElementById("m_account");
-            select.value = mailing.account_id;
-            if (select.value) {
-                loadChatsForMailing();
-            }
-        }, 500);
+        const select =
+            document.getElementById("m_account");
+
+        select.value = mailing.account_id;
+
+        if (select.value) {
+
+            await loadChatsForMailing();
+
+            setTimeout(() => {
+
+                document
+                    .querySelectorAll(".chat-item")
+                    .forEach(el => {
+
+                        if (
+                            selectedChats.includes(
+                                el.dataset.id
+                            )
+                        ) {
+
+                            el.classList.add(
+                                "selected"
+                            );
+
+                        }
+
+                    });
+
+                updateCounter();
+
+            }, 500);
+
+        }
 
     } catch (e) {
+
         console.error(e);
+
         alert("Ошибка загрузки данных рассылки");
     }
 }
@@ -548,6 +749,22 @@ async function loadChatsForMailing() {
     }
 }
 
+setTimeout(() => {
+
+    document.querySelectorAll(".chat-item").forEach(el => {
+
+        if (selectedChats.includes(el.dataset.id)) {
+
+            el.classList.add("selected");
+
+        }
+
+    });
+
+    updateCounter();
+
+}, 1000);
+
 function toggleChat(el) {
     const id = el.dataset.id;
     if (selectedChats.includes(id)) {
@@ -561,12 +778,17 @@ function toggleChat(el) {
 }
 
 function selectAllChats() {
-    document.querySelectorAll('.chat-item').forEach(el => {
-        if (!el.classList.contains("selected")) {
-            el.classList.add("selected");
-            selectedChats.push(el.dataset.id);
-        }
+
+    selectedChats = [];
+
+    document.querySelectorAll(".chat-item").forEach(el => {
+
+        el.classList.add("selected");
+
+        selectedChats.push(el.dataset.id);
+
     });
+
     updateCounter();
 }
 
