@@ -909,25 +909,34 @@ async def toggle_mailing(request):
 
             await db.commit()
 
+        # ================= START =================
+
         if status == "active":
 
-        if m_id in active_mailings:
+            # если таск уже существует
+            if m_id in active_mailings:
 
-         = active_mailings[m_id]
+                old_task = active_mailings[m_id]
 
-        if old_task.done():
-            del active_mailings[m_id]
+                # если таск умер — удаляем
+                if old_task.done():
 
-    if m_id not in active_mailings:
+                    del active_mailings[m_id]
 
-        task = asyncio.create_task(
-            mailing_worker(m_id)
-        )
+            # создаём новый таск
+            if m_id not in active_mailings:
 
-        active_mailings[m_id] = task
+                task = asyncio.create_task(
+                    mailing_worker(m_id)
+                )
 
+                active_mailings[m_id] = task
 
-     else:
+                print(f"✅ MAILING TASK CREATED {m_id}")
+
+        # ================= STOP =================
+
+        else:
 
             if m_id in active_mailings:
 
@@ -936,63 +945,127 @@ async def toggle_mailing(request):
                 task.cancel()
 
                 try:
+
                     await task
+
                 except:
+
                     pass
 
                 del active_mailings[m_id]
+
+                print(f"🛑 MAILING TASK STOPPED {m_id}")
 
         return json_response(True)
 
     except Exception as e:
 
+        import traceback
+
         print("toggle_mailing ERROR:", str(e))
 
+        traceback.print_exc()
+
         return json_response(False, str(e))
+
+
 # ========================= APP =========================
+
 async def create_app():
+
     await init_db()
+
     app = web.Application()
 
     routes = {
+
         "/register": register,
         "/login": login,
         "/send_code": send_code,
         "/verify_code": verify_code,
         "/verify_password": verify_password,
+
         "/accounts": list_accounts,
         "/delete_account": delete_account,
         "/delete_session": delete_session,
+
         "/get_chats": get_chats,
+
         "/create_mailing": create_mailing,
         "/mailings": list_mailings,
         "/delete_mailing": delete_mailing,
         "/update_mailing": update_mailing,
         "/toggle_mailing": toggle_mailing,
+
         "/create_user": create_user,
         "/auto_login": auto_login,
+
     }
 
     for path, handler in routes.items():
+
         app.router.add_post(path, handler)
 
-    app.router.add_get("/", lambda r: web.FileResponse('index.html'))
+    app.router.add_get(
+        "/",
+        lambda r: web.FileResponse("index.html")
+    )
 
-    cors = aiohttp_cors.setup(app, defaults={
-        "*": aiohttp_cors.ResourceOptions(allow_headers="*", allow_methods="*", allow_credentials=True)
-    })
+    cors = aiohttp_cors.setup(
+        app,
+        defaults={
+            "*": aiohttp_cors.ResourceOptions(
+                allow_headers="*",
+                allow_methods="*",
+                allow_credentials=True
+            )
+        }
+    )
+
     for route in list(app.router.routes()):
+
         cors.add(route)
 
     app.on_startup.append(start_background_tasks)
+
     return app
 
+
+# ========================= AUTO START =========================
+
 async def start_background_tasks(app):
+
     async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT id FROM mailings WHERE status='active'")
-        for row in await cursor.fetchall():
-            active_mailings[row[0]] = asyncio.create_task(mailing_worker(row[0]))
+
+        cursor = await db.execute(
+            "SELECT id FROM mailings WHERE status='active'"
+        )
+
+        rows = await cursor.fetchall()
+
+    for row in rows:
+
+        mailing_id = row[0]
+
+        if mailing_id not in active_mailings:
+
+            active_mailings[mailing_id] = asyncio.create_task(
+                mailing_worker(mailing_id)
+            )
+
+            print(f"♻️ RESTORED MAILING {mailing_id}")
+
+
+# ========================= MAIN =========================
 
 if __name__ == "__main__":
-    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
-    web.run_app(create_app(), host="0.0.0.0", port=PORT)
+
+    asyncio.set_event_loop_policy(
+        asyncio.DefaultEventLoopPolicy()
+    )
+
+    web.run_app(
+        create_app(),
+        host="0.0.0.0",
+        port=PORT
+    )
