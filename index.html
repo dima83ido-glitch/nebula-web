@@ -458,17 +458,7 @@ async function loadMailings() {
                     ${isActive ? '⏹ Остановить' : '▶ Запустить'}
                 </button>
 
-                <button
-                    onclick="editMailing(${m.id})"
-                    style="
-                        background:#3b82f6;
-                        color:white;
-                        padding:8px 14px;
-                        margin-left:8px;
-                    "
-                >
-                    ✏️ Изменить
-                </button>
+            
 
                 <button
                     onclick="deleteMailing(${m.id})"
@@ -753,7 +743,7 @@ setTimeout(() => {
 
     document.querySelectorAll(".chat-item").forEach(el => {
 
-        if (selectedChats.includes(el.dataset.id)) {
+        if (selectedChats.includes(Number(el.dataset.id))) {
 
             el.classList.add("selected");
 
@@ -766,7 +756,7 @@ setTimeout(() => {
 }, 1000);
 
 function toggleChat(el) {
-    const id = el.dataset.id;
+    const id = Number(el.dataset.id);
     if (selectedChats.includes(id)) {
         selectedChats = selectedChats.filter(x => x !== id);
         el.classList.remove("selected");
@@ -785,7 +775,7 @@ function selectAllChats() {
 
         el.classList.add("selected");
 
-        selectedChats.push(el.dataset.id);
+        selectedChats.push(Number(el.dataset.id));
 
     });
 
