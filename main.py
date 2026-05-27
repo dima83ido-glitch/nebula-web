@@ -168,7 +168,7 @@ async def auto_login(request):
         return json_response(False, str(e))
     
 async def get_telegram_client(account):
-    session_name = account[6]
+    session_name = account[6]  # session_name из БД
     session_path = os.path.join(SESSIONS_DIR, session_name)
 
     client = None
@@ -185,42 +185,42 @@ async def get_telegram_client(account):
             in_memory=False,
             no_updates=True,
             sleep_threshold=120,
-            workers=1
+            workers=1,
+            # Важные параметры для стабильности:
+            takeout=False,
+            ipv6=False,
         )
 
         await client.connect()
 
         # Проверка живости сессии
         me = await client.get_me()
-        print(f"✅ Сессия жива для {me.first_name} ({account[2]})")
+        print(f"✅ Сессия ЖИВА: {me.first_name} ({account[2]}) | ID: {me.id}")
 
         return client
 
-    except AuthKeyUnregistered as e:
-        print(f"❌ SESSION DEAD: {session_name}")
-        try:
-            if client:
-                await client.disconnect()
-        except:
-            pass
-        # Удаляем битую сессию
-        try:
-            session_file = f"{session_path}.session"
-            if os.path.exists(session_file):
-                os.remove(session_file)
-                print(f"🗑 Битая сессия удалена")
-        except:
-            pass
-        raise Exception("SESSION_DEAD")
+    except (AuthKeyUnregistered, Exception) as e:
+        error_str = str(e)
+        print(f"❌ SESSION DEAD или ошибка: {error_str} | Session: {session_name}")
 
-    except Exception as e:
-        print(f"get_telegram_client ERROR: {str(e)}")
+        # Принудительная очистка
         try:
             if client:
                 await client.disconnect()
         except:
             pass
-        raise
+
+        # Удаляем все возможные файлы сессии
+        for ext in ['', '.session', '.session-journal']:
+            file_path = f"{session_path}{ext}"
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    print(f"🗑 Удалён файл сессии: {file_path}")
+                except Exception as del_err:
+                    print(f"Не удалось удалить {file_path}: {del_err}")
+
+        raise Exception("SESSION_DEAD") from e
     
     # ========================= CREATE USER (для админа) =========================
 async def create_user(request):
@@ -290,39 +290,27 @@ async def send_code(request):
             filter(str.isdigit, phone)
         )
 
-        # НОРМАЛЬНОЕ ИМЯ СЕССИИ
+                # === ИСПРАВЛЕНИЕ ===
         session_name = f"{username}_{clean_phone}"
-
         session_path = os.path.join(SESSIONS_DIR, session_name)
 
-        session_file = f"{session_path}.session"
+        # Полная очистка перед новой авторизацией
+        for ext in ['', '.session', '.session-journal']:
+            fpath = f"{session_path}{ext}"
+            if os.path.exists(fpath):
+                os.remove(fpath)
 
-        # УДАЛЯЕМ БИТУЮ СЕССИЮ
-        if os.path.exists(session_file):
-
-            try:
-
-                os.remove(session_file)
-
-                print(f"🗑 OLD SESSION REMOVED: {session_file}")
-
-            except Exception as e:
-
-                print(f"❌ DELETE SESSION ERROR: {e}")
-
-        print(f"🔄 Отправка кода на номер: {phone}")
+        print(f"🔄 Новая сессия: {session_name}")
 
         client = Client(
-            session_path,
+            name=session_path,
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy if proxy else None,
-
             device_model="iPhone 15 Pro",
             system_version="iOS 17.0",
             app_version="10.6.0",
             lang_code="ru",
-
             no_updates=True,
             workers=1,
             sleep_threshold=30
@@ -465,7 +453,7 @@ async def save_account(auth, tg_username):
                 return
 
             # ВАЖНО
-            session_name = auth["session_name"].replace("sessions/", "")
+            session_name = auth["session_name"]
 
             await db.execute("""
                 INSERT INTO accounts (
@@ -519,23 +507,43 @@ async def delete_account(request):
         data = await request.json()
         account_id = data["account_id"]
 
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
-            acc = await cursor.fetchone()
-            
-            if acc and acc[0]:
-                session_file = f"sessions/{acc[0]}.session"
-                if os.path.exists(session_file):
-                    os.remove(session_file)
-                    print(f"✅ Сессия удалена: {session_file}")
+        session_name = None
 
+        async with aiosqlite.connect(DATABASE) as db:
+            # Получаем имя сессии перед удалением
+            cursor = await db.execute(
+                "SELECT session_name FROM accounts WHERE id=?", 
+                (account_id,)
+            )
+            acc = await cursor.fetchone()
+
+            if acc and acc[0]:
+                session_name = acc[0]
+
+            # Удаляем запись из базы
             await db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
             await db.commit()
 
+        # Удаляем файлы сессии, если они существуют
+        if session_name:
+            for ext in ["", ".session", ".session-journal"]:
+                session_file = os.path.join(SESSIONS_DIR, f"{session_name}{ext}")
+                if os.path.exists(session_file):
+                    try:
+                        os.remove(session_file)
+                        print(f"🗑 Удалён файл сессии: {session_file}")
+                    except Exception as e:
+                        print(f"⚠️ Не удалось удалить {session_file}: {e}")
+
+        print(f"✅ Аккаунт #{account_id} и его сессия успешно удалены")
         return json_response(True, "Аккаунт и сессия успешно удалены")
+
     except Exception as e:
         print("delete_account error:", str(e))
-        return json_response(False, str(e))
+        import traceback
+        traceback.print_exc()
+        return json_response(False, f"Ошибка при удалении аккаунта: {str(e)}")
+
 
 async def delete_session(request):
     try:
@@ -545,20 +553,43 @@ async def delete_session(request):
         if not account_id:
             return json_response(False, "Не указан ID аккаунта")
 
+        session_name = None
+
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
+            cursor = await db.execute(
+                "SELECT session_name FROM accounts WHERE id=?", 
+                (account_id,)
+            )
             acc = await cursor.fetchone()
 
             if acc and acc[0]:
-                session_file = f"sessions/{acc[0]}.session"
-                if os.path.exists(session_file):
-                    os.remove(session_file)
-                    print(f"✅ Сессия удалена: {session_file}")
+                session_name = acc[0]
 
-        return json_response(True, "Сессия успешно удалена")
+        if not session_name:
+            return json_response(False, "Сессия не найдена")
+
+        # Удаляем все связанные файлы сессии
+        deleted = False
+        for ext in ["", ".session", ".session-journal"]:
+            session_file = os.path.join(SESSIONS_DIR, f"{session_name}{ext}")
+            if os.path.exists(session_file):
+                try:
+                    os.remove(session_file)
+                    print(f"🗑 Удалён файл: {session_file}")
+                    deleted = True
+                except Exception as e:
+                    print(f"⚠️ Не удалось удалить {session_file}: {e}")
+
+        if deleted:
+            return json_response(True, "Сессия успешно удалена")
+        else:
+            return json_response(True, "Сессия не найдена на диске (уже удалена)")
+
     except Exception as e:
         print("delete_session error:", str(e))
-        return json_response(False, str(e))
+        import traceback
+        traceback.print_exc()
+        return json_response(False, f"Ошибка при удалении сессии: {str(e)}")
     
 # ========================= GET CHATS =========================
 async def get_chats(request):
@@ -577,25 +608,25 @@ async def get_chats(request):
         client = await get_telegram_client(acc)
 
         chats = []
-        async for dialog in client.get_dialogs(limit=20000):
+        async for dialog in client.get_dialogs(limit=MAX_CHATS):
             chat = dialog.chat
-            if chat and chat.type in ["group", "supergroup", "channel", "private"]:
-                title = chat.title or chat.first_name or chat.username or f"ID: {chat.id}"
+            if chat:
+                title = chat.title or chat.first_name or chat.username or str(chat.id)
                 chats.append({
                     "id": str(chat.id),
                     "title": title
                 })
 
-        print(f"✅ Успешно загружено {len(chats)} чатов")
+        print(f"✅ Загружено {len(chats)} чатов для аккаунта {acc[2]}")
         return json_response(True, chats=chats)
 
     except Exception as e:
         error_msg = str(e)
-        print("get_chats ERROR:", error_msg)
-
-        if "SESSION_DEAD" in error_msg or "AUTH_KEY_UNREGISTERED" in error_msg:
-            return json_response(False, "Сессия Telegram умерла. Удалите аккаунт и добавьте заново.")
-        return json_response(False, f"Ошибка: {error_msg}")
+        print(f"get_chats CRITICAL ERROR: {error_msg}")
+        
+        if "SESSION_DEAD" in error_msg:
+            return json_response(False, "Сессия умерла. Удалите аккаунт и добавьте заново.")
+        return json_response(False, f"Ошибка загрузки чатов: {error_msg}")
 
     finally:
         if client:
