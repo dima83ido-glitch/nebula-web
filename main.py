@@ -168,10 +168,11 @@ async def auto_login(request):
         return json_response(False, str(e))
     
 async def get_telegram_client(account):
-    try:
-        session_name = account[6]
-        session_path = os.path.join(SESSIONS_DIR, session_name)
+    session_name = account[6]
+    session_path = os.path.join(SESSIONS_DIR, session_name)
 
+    client = None
+    try:
         client = Client(
             name=session_path,
             api_id=int(account[3]),
@@ -183,25 +184,40 @@ async def get_telegram_client(account):
             lang_code="ru",
             in_memory=False,
             no_updates=True,
-            sleep_threshold=60,
+            sleep_threshold=120,
             workers=1
         )
 
         await client.connect()
 
-        # Проверяем, жива ли сессия
-        try:
-            await client.get_me()
-        except AuthKeyUnregistered:
-            await client.disconnect()
-            raise Exception("SESSION_DEAD")
+        # Проверка живости сессии
+        me = await client.get_me()
+        print(f"✅ Сессия жива для {me.first_name} ({account[2]})")
 
         return client
+
+    except AuthKeyUnregistered as e:
+        print(f"❌ SESSION DEAD: {session_name}")
+        try:
+            if client:
+                await client.disconnect()
+        except:
+            pass
+        # Удаляем битую сессию
+        try:
+            session_file = f"{session_path}.session"
+            if os.path.exists(session_file):
+                os.remove(session_file)
+                print(f"🗑 Битая сессия удалена")
+        except:
+            pass
+        raise Exception("SESSION_DEAD")
 
     except Exception as e:
         print(f"get_telegram_client ERROR: {str(e)}")
         try:
-            await client.disconnect()
+            if client:
+                await client.disconnect()
         except:
             pass
         raise
@@ -570,22 +586,21 @@ async def get_chats(request):
                     "title": title
                 })
 
-        print(f"✅ Загружено {len(chats)} чатов для {acc[2]}")
+        print(f"✅ Успешно загружено {len(chats)} чатов")
         return json_response(True, chats=chats)
 
     except Exception as e:
         error_msg = str(e)
-        print("get_chats CRITICAL ERROR:", error_msg)
-        
+        print("get_chats ERROR:", error_msg)
+
         if "SESSION_DEAD" in error_msg or "AUTH_KEY_UNREGISTERED" in error_msg:
             return json_response(False, "Сессия Telegram умерла. Удалите аккаунт и добавьте заново.")
-        else:
-            return json_response(False, f"Ошибка: {error_msg}")
+        return json_response(False, f"Ошибка: {error_msg}")
 
     finally:
         if client:
             try:
-                await client.disconnect()   # ← Важно: disconnect, а не stop
+                await client.disconnect()
             except:
                 pass
 # ========================= MAILING =========================
