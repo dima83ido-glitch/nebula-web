@@ -159,49 +159,47 @@ async def auto_login(request):
 async def get_telegram_client(account):
     session_name = account[6]
     session_path = f"sessions/{session_name}"
-    
+
+    app = Client(
+        name=session_path,
+        api_id=int(account[3]),
+        api_hash=account[4],
+        proxy=account[5] if account[5] else None,
+        device_model="iPhone 15 Pro",
+        system_version="iOS 17.0",
+        app_version="10.6.0",
+        lang_code="ru",
+        in_memory=False,
+        no_updates=True,
+        sleep_threshold=60,
+        workers=1
+        workdir="/tmp"
+    )
+
     try:
-        app = Client(
-            name=session_path,
-            api_id=int(account[3]),
-            api_hash=account[4],
-            proxy=account[5] if account[5] else None,
-            device_model="iPhone 15 Pro",
-            system_version="iOS 17.0",
-            app_version="10.6.0",
-            lang_code="ru",
-            in_memory=False,
-            no_updates=True,
-            sleep_threshold=180,
-            workers=1
-        )
-        
         await app.start()
-        me = await app.get_me()
-        print(f"✅ СЕССИЯ ЖИВА: {me.first_name} | {account[2]}")
+        await app.get_me()
         return app
 
     except AuthKeyUnregistered:
-        print(f"❌ AUTH KEY UNREGISTERED (мёртвая сессия): {session_path}")
-        # Удаляем только если точно мёртвая
-        for ext in ["", ".session", ".session-journal"]:
-            try:
-                path = f"{session_path}{ext}"
-                if os.path.exists(path):
-                    os.remove(path)
-                    print(f"🗑 Удалён: {path}")
-            except:
-                pass
-        raise Exception("SESSION_DEAD")
-        
-    except Exception as e:
-        print(f"❌ CLIENT ERROR: {e}")
+        print("❌ AUTH KEY DEAD")
+
         try:
-            if 'app' in locals():
-                await app.stop()
+            await app.stop()
         except:
             pass
-        raise
+
+        return None
+
+    except Exception as e:
+        print(f"CLIENT ERROR: {e}")
+
+        try:
+            await app.stop()
+        except:
+            pass
+
+        return None
 
 # ========================= CREATE USER =========================
 async def create_user(request):
@@ -249,11 +247,7 @@ async def send_code(request):
         session_path = f"sessions/{session_name}"
         session_file = f"{session_path}.session"
         if os.path.exists(session_file):
-            try:
-                os.remove(session_file)
-                print(f"🗑 OLD SESSION REMOVED: {session_file}")
-            except Exception as e:
-                print(f"❌ DELETE SESSION ERROR: {e}")
+            
         print(f"🔄 Отправка кода на номер: {phone}")
         client = Client(
             session_path,
@@ -266,6 +260,7 @@ async def send_code(request):
             lang_code="ru",
             no_updates=True,
             workers=1,
+            workdir="/tmp",
             sleep_threshold=30
         )
         await client.connect()
@@ -483,7 +478,7 @@ async def mailing_worker(mailing_id):
                 mailing = await cursor.fetchone()
 
             if not mailing:
-                print(f"❌ MAILING {mailing_id} DELETED FROM DB")
+                print("❌ MAILING DELETED")
                 return
 
             if mailing[9] != "active":
@@ -496,25 +491,25 @@ async def mailing_worker(mailing_id):
                 account = await cursor.fetchone()
 
             if not account:
-                print(f"❌ ACCOUNT NOT FOUND FOR MAILING {mailing_id}")
-                # Переводим в стоп, раз аккаунта нет в базе
-                async with aiosqlite.connect(DATABASE) as db:
-                    await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
-                    await db.commit()
-                return
+                print("❌ ACCOUNT NOT FOUND")
+                await asyncio.sleep(5)
+                continue
 
             # Connect client
             if client is None:
                 try:
                     client = await get_telegram_client(account)
-                    print("✅ CLIENT CONNECTED")
+
+if not client:
+    print("❌ CLIENT DEAD, RETRY AFTER 30 SEC")
+    await asyncio.sleep(30)
+    continue
+
+print("✅ CLIENT CONNECTED")
                 except Exception as e:
-                    print(f"❌ CLIENT CONNECT ERROR (Сессия умерла или удалена): {e}")
-                    # КРИТИЧЕСКИЙ СБОЙ СЕССИИ: останавливаем рассылку в базе, чтобы не спамить логи
-                    async with aiosqlite.connect(DATABASE) as db:
-                        await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
-                        await db.commit()
-                    return
+                    print(f"❌ CLIENT CONNECT ERROR: {e}")
+                    await asyncio.sleep(10)
+                    continue
 
             # Load chats
             try:
@@ -524,22 +519,19 @@ async def mailing_worker(mailing_id):
 
             if not chats:
                 print("❌ NO CHATS SELECTED")
-                async with aiosqlite.connect(DATABASE) as db:
-                    await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
-                    await db.commit()
-                return
+                await asyncio.sleep(5)
+                continue
 
             # Prepare texts
             texts = [mailing[4] or "", mailing[5] or "", mailing[6] or ""]
             texts = [t.strip() for t in texts if t.strip()]
             if not texts:
                 print("❌ NO TEXTS")
-                async with aiosqlite.connect(DATABASE) as db:
-                    await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
-                    await db.commit()
-                return
+                await asyncio.sleep(5)
+                continue
 
             interval = int(mailing[7] or 3)
+
             print(f"📨 НАЧИНАЕМ РАССЫЛКУ В {len(chats)} ЧАТОВ | Текстов: {len(texts)}")
 
             # SEND LOOP
@@ -549,7 +541,7 @@ async def mailing_worker(mailing_id):
                     cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
                     current = await cursor.fetchone()
                 if not current or current[0] != "active":
-                    print(f"🛑 MAILING STOPPED BY USER {mailing_id}")
+                    print(f"🛑 MAILING STOPPED {mailing_id}")
                     return
 
                 try:
@@ -577,20 +569,36 @@ async def mailing_worker(mailing_id):
 
                 except FloodWait as e:
                     wait = int(e.value)
-                    print(f"⏳ FLOODWAIT {wait} сек. Спим...")
+                    print(f"⏳ FLOODWAIT {wait} сек")
                     await asyncio.sleep(wait)
-                except (AuthKeyUnregistered, Exception) as e:
-                    # Если ловим смерть сессии прямо во время отправки
-                    if "SESSION_DEAD" in str(e) or isinstance(e, AuthKeyUnregistered):
-                        print("❌ SESSION DIED DURING MAILING")
-                        async with aiosqlite.connect(DATABASE) as db:
-                            await db.execute("UPDATE mailings SET status='stopped' WHERE id=?", (mailing_id,))
-                            await db.commit()
-                        return
-                    
-                    print(f"❌ SEND ERROR в чат {chat_id}: {e}")
-                    await asyncio.sleep(3)
+                except AuthKeyUnregistered:
+                    print("❌ SESSION DEAD")
+                    if client:
+                        try:
+                            await client.stop()
+                        except:
+                            pass
+                    client = None
+                    await asyncio.sleep(15)
+                    break
+                except Exception as e:
+    err = str(e)
 
+    print(f"❌ SEND ERROR {chat_id}: {err}")
+
+    if "AUTH_KEY" in err.upper():
+        try:
+            await client.stop()
+        except:
+            pass
+
+        client = None
+
+        await asyncio.sleep(15)
+        break
+
+    await asyncio.sleep(3)
+    
             print(f"🔁 КРУГ ЗАВЕРШЁН ({sent} сообщений всего). Следующий круг через 15 сек...")
             await asyncio.sleep(15)
 
