@@ -160,8 +160,11 @@ async def get_telegram_client(account):
     session_name = account[6]
     session_path = f"sessions/{session_name}"
     session_file = f"{session_path}.session"
+
+    # Если файла нет — сразу ошибка
     if not os.path.exists(session_file):
         raise Exception("SESSION_FILE_NOT_FOUND")
+
     try:
         app = Client(
             name=session_path,
@@ -174,29 +177,36 @@ async def get_telegram_client(account):
             lang_code="ru",
             in_memory=False,
             no_updates=True,
-            sleep_threshold=60,
+            sleep_threshold=120,      # увеличил
             workers=1
         )
+        
         await app.start()
-        await app.get_me()
+        me = await app.get_me()
+        print(f"✅ СЕССИЯ УСПЕШНО ПОДКЛЮЧЕНА: {me.first_name} ({account[2]})")
         return app
-    except AuthKeyUnregistered:
+
+    except AuthKeyUnregistered as e:
         print(f"❌ AUTH KEY DEAD: {session_file}")
         try:
-            await app.stop()
+            if 'app' in locals():
+                await app.stop()
         except:
             pass
-        try:
-            if os.path.exists(session_file):
-                os.remove(session_file)
-                print("🗑 SESSION FILE REMOVED")
-        except Exception as e:
-            print(f"DELETE SESSION ERROR: {e}")
+        # Удаляем битую сессию
+        for ext in ["", ".session", ".session-journal"]:
+            try:
+                if os.path.exists(f"{session_path}{ext}"):
+                    os.remove(f"{session_path}{ext}")
+            except:
+                pass
         raise Exception("SESSION_DEAD")
+    
     except Exception as e:
-        print(f"CLIENT ERROR: {e}")
+        print(f"❌ CLIENT ERROR: {e}")
         try:
-            await app.stop()
+            if 'app' in locals():
+                await app.stop()
         except:
             pass
         raise
@@ -469,17 +479,15 @@ async def get_chats(request):
 
 # ========================= MAILING =========================
 async def mailing_worker(mailing_id):
-    print(f"🚀 MAILING STARTED {mailing_id} — будет работать до остановки")
+    print(f"🚀 MAILING STARTED {mailing_id} — работает до остановки")
     client = None
     sent = 0
 
     try:
-        while True:  # Главный бесконечный цикл
-            # ================= LOAD MAILING =================
+        while True:
+            # Проверяем статус рассылки
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT * FROM mailings WHERE id=?", (mailing_id,)
-                )
+                cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
                 mailing = await cursor.fetchone()
 
             if not mailing:
@@ -487,15 +495,12 @@ async def mailing_worker(mailing_id):
                 return
 
             if mailing[9] != "active":
-                print(f"⏸ Рассылка {mailing_id} поставлена на паузу")
                 await asyncio.sleep(5)
                 continue
 
-            # ================= LOAD ACCOUNT =================
+            # Подключаем аккаунт
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT * FROM accounts WHERE id=?", (mailing[2],)
-                )
+                cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
                 account = await cursor.fetchone()
 
             if not account:
@@ -503,50 +508,54 @@ async def mailing_worker(mailing_id):
                 await asyncio.sleep(10)
                 continue
 
-            # ================= CONNECT CLIENT =================
+            # Подключаем клиент (с повторными попытками)
             if client is None:
-                try:
-                    client = await get_telegram_client(account)
-                    print("✅ CLIENT CONNECTED")
-                except Exception as e:
-                    print(f"❌ CLIENT CONNECT ERROR: {e}")
-                    await asyncio.sleep(15)
+                for attempt in range(3):  # 3 попытки переподключения
+                    try:
+                        client = await get_telegram_client(account)
+                        break
+                    except Exception as e:
+                        print(f"❌ CLIENT CONNECT ATTEMPT {attempt+1} FAILED: {e}")
+                        if "SESSION_DEAD" in str(e) or "SESSION_FILE_NOT_FOUND" in str(e):
+                            print("🔄 Сессия умерла — нужно перелогинить аккаунт")
+                            await asyncio.sleep(10)
+                            continue
+                        await asyncio.sleep(8)
+                else:
+                    print("❌ НЕ УДАЛОСЬ ПОДКЛЮЧИТЬСЯ К АККАУНТУ")
+                    await asyncio.sleep(30)
                     continue
 
-            # ================= LOAD CHATS =================
+            # Загружаем чаты и тексты
             try:
                 chats = json.loads(mailing[8] or "[]")
-            except Exception:
+            except:
                 chats = []
 
             if not chats:
-                print("❌ NO CHATS SELECTED")
+                print("❌ NO CHATS")
                 await asyncio.sleep(10)
                 continue
 
-            # ================= PREPARE TEXTS =================
             texts = [mailing[4] or "", mailing[5] or "", mailing[6] or ""]
             texts = [t.strip() for t in texts if t.strip()]
             if not texts:
-                print("❌ NO TEXTS TO SEND")
+                print("❌ NO TEXTS")
                 await asyncio.sleep(10)
                 continue
 
             interval = int(mailing[7] or 3)
 
-            print(f"📨 НАЧИНАЕМ НОВЫЙ КРУГ | Чатов: {len(chats)} | Текстов: {len(texts)}")
+            print(f"📨 НОВЫЙ КРУГ | Чатов: {len(chats)} | Текстов: {len(texts)}")
 
-            # ================= SEND LOOP =================
+            # Отправка
             for raw_chat_id in chats:
-                # Проверка, не остановили ли рассылку
+                # Проверка остановки перед каждым сообщением
                 async with aiosqlite.connect(DATABASE) as db:
-                    cursor = await db.execute(
-                        "SELECT status FROM mailings WHERE id=?", (mailing_id,)
-                    )
+                    cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
                     current = await cursor.fetchone()
-
                 if not current or current[0] != "active":
-                    print(f"🛑 MAILING {mailing_id} ОСТАНОВЛЕНА ПОЛЬЗОВАТЕЛЕМ")
+                    print(f"🛑 РАССЫЛКА {mailing_id} ОСТАНОВЛЕНА ПОЛЬЗОВАТЕЛЕМ")
                     return
 
                 try:
@@ -557,46 +566,38 @@ async def mailing_worker(mailing_id):
                 try:
                     text = texts[sent % len(texts)]
                     await client.send_message(chat_id, text)
-
                     sent += 1
-                    print(f"✅ SENT #{sent} → {chat_id} | {text[:60]}...")
+                    print(f"✅ SENT #{sent} → {chat_id}")
 
-                    # Обновляем счётчик в БД
                     async with aiosqlite.connect(DATABASE) as db:
-                        await db.execute(
-                            "UPDATE mailings SET sent_count=? WHERE id=?",
-                            (sent, mailing_id)
-                        )
+                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
                         await db.commit()
 
                     await asyncio.sleep(interval)
 
                 except FloodWait as e:
-                    wait_time = int(e.value)
-                    print(f"⏳ FLOODWAIT {wait_time} сек")
-                    await asyncio.sleep(wait_time)
+                    await asyncio.sleep(int(e.value))
                 except AuthKeyUnregistered:
-                    print("❌ SESSION DEAD — Переподключаемся...")
+                    print("❌ SESSION DEAD во время отправки")
                     if client:
                         try:
                             await client.stop()
                         except:
                             pass
                     client = None
-                    await asyncio.sleep(20)
                     break
                 except Exception as e:
-                    print(f"❌ Ошибка отправки в {chat_id}: {e}")
-                    await asyncio.sleep(5)
+                    print(f"❌ SEND ERROR {chat_id}: {e}")
+                    await asyncio.sleep(3)
 
-            print(f"🔁 Круг завершён (всего отправлено: {sent}). Начинаем новый круг через 10 сек...")
-            await asyncio.sleep(10)  # Пауза между кругами
+            print(f"🔁 КРУГ ЗАВЕРШЁН (всего {sent}). Следующий через 10 сек...")
+            await asyncio.sleep(10)
 
     except asyncio.CancelledError:
-        print(f"🛑 MAILING {mailing_id} ПРИНУДИТЕЛЬНО ОСТАНОВЛЕНА")
+        print(f"🛑 MAILING {mailing_id} CANCELLED BY USER")
     except Exception as e:
         import traceback
-        print(f"❌ MAILING WORKER CRITICAL CRASH: {e}")
+        print(f"❌ MAILING CRASH: {e}")
         traceback.print_exc()
     finally:
         if client:
@@ -604,7 +605,6 @@ async def mailing_worker(mailing_id):
                 await client.stop()
             except:
                 pass
-        print(f"🏁 MAILING {mailing_id} ЗАВЕРШЕНА")
 
 # ========================= Остальные функции (1:1) =========================
 async def create_mailing(request):
