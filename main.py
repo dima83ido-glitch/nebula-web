@@ -472,27 +472,33 @@ async def mailing_worker(mailing_id):
     print(f"🚀 MAILING STARTED {mailing_id}")
     client = None
     sent = 0
+
     try:
         while True:
+            # Load mailing
             async with aiosqlite.connect(DATABASE) as db:
                 cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
                 mailing = await cursor.fetchone()
+
             if not mailing:
                 print("❌ MAILING DELETED")
                 return
-            status = mailing[9]
-            if status != "active":
+
+            if mailing[9] != "active":
                 await asyncio.sleep(2)
                 continue
 
+            # Load account
             async with aiosqlite.connect(DATABASE) as db:
                 cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
                 account = await cursor.fetchone()
+
             if not account:
                 print("❌ ACCOUNT NOT FOUND")
                 await asyncio.sleep(5)
                 continue
 
+            # Connect client
             if client is None:
                 try:
                     client = await get_telegram_client(account)
@@ -502,80 +508,95 @@ async def mailing_worker(mailing_id):
                     await asyncio.sleep(10)
                     continue
 
+            # Load chats
             try:
                 chats = json.loads(mailing[8] or "[]")
             except:
                 chats = []
 
             if not chats:
-                print("❌ NO CHATS")
+                print("❌ NO CHATS SELECTED")
                 await asyncio.sleep(5)
                 continue
 
+            # Prepare texts
             texts = [mailing[4] or "", mailing[5] or "", mailing[6] or ""]
-            texts = [t for t in texts if t.strip()]
+            texts = [t.strip() for t in texts if t.strip()]
+            if not texts:
+                print("❌ NO TEXTS")
+                await asyncio.sleep(5)
+                continue
+
             interval = int(mailing[7] or 3)
 
-            print(f"📨 START SENDING TO {len(chats)} CHATS")
+            print(f"📨 НАЧИНАЕМ РАССЫЛКУ В {len(chats)} ЧАТОВ | Текстов: {len(texts)}")
 
+            # SEND LOOP
             for raw_chat_id in chats:
+                # Check if still active
+                async with aiosqlite.connect(DATABASE) as db:
+                    cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
+                    current = await cursor.fetchone()
+                if not current or current[0] != "active":
+                    print(f"🛑 MAILING STOPPED {mailing_id}")
+                    return
+
                 try:
                     chat_id = int(raw_chat_id)
                 except:
+                    print(f"❌ INVALID CHAT ID: {raw_chat_id}")
                     continue
 
                 try:
-                    async with aiosqlite.connect(DATABASE) as db:
-                        cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
-                        current = await cursor.fetchone()
-                    if not current or current[0] != "active":
-                        print(f"🛑 MAILING STOPPED {mailing_id}")
-                        return
-
-                    # Циклический выбор текста
-                    text = texts[sent % len(texts)] if texts else ""
-
+                    text = texts[sent % len(texts)]
                     await client.send_message(chat_id, text)
-                    sent += 1
-                    print(f"✅ SENT {sent} -> {chat_id}")
 
+                    sent += 1
+                    print(f"✅ SENT #{sent} → {chat_id} | {text[:50]}...")
+
+                    # Update counter
                     async with aiosqlite.connect(DATABASE) as db:
-                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
+                        await db.execute(
+                            "UPDATE mailings SET sent_count=? WHERE id=?",
+                            (sent, mailing_id)
+                        )
                         await db.commit()
 
                     await asyncio.sleep(interval)
 
                 except FloodWait as e:
-                    wait_time = int(e.value)
-                    print(f"⏳ FLOODWAIT {wait_time}")
-                    await asyncio.sleep(wait_time)
+                    wait = int(e.value)
+                    print(f"⏳ FLOODWAIT {wait} сек")
+                    await asyncio.sleep(wait)
                 except AuthKeyUnregistered:
                     print("❌ SESSION DEAD")
-                    try:
-                        await client.stop()
-                    except:
-                        pass
+                    if client:
+                        try:
+                            await client.stop()
+                        except:
+                            pass
                     client = None
                     await asyncio.sleep(15)
                     break
                 except Exception as e:
-                    print(f"❌ SEND ERROR {chat_id}: {e}")
+                    print(f"❌ SEND ERROR в чат {chat_id}: {e}")
                     await asyncio.sleep(3)
 
-            print(f"🔁 ROUND FINISHED {mailing_id}")
+            print(f"🔁 КРУГ ЗАВЕРШЁН ({sent} сообщений всего). Следующий круг через 15 сек...")
             await asyncio.sleep(15)
 
     except asyncio.CancelledError:
         print(f"🛑 MAILING CANCELLED {mailing_id}")
     except Exception as e:
-        print(f"❌ WORKER CRASH: {e}")
+        import traceback
+        print(f"❌ MAILING WORKER CRASH: {e}")
+        traceback.print_exc()
     finally:
-        try:
-            if client:
+        if client:
+            try:
                 await client.stop()
-                print("🛑 CLIENT STOPPED")
-        except:
-            pass
+            except:
+                pass
 
 # ========================= Остальные функции (1:1) =========================
 async def create_mailing(request):
