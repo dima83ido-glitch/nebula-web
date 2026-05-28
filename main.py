@@ -6,7 +6,7 @@ import bcrypt
 import aiosqlite
 from aiohttp import web
 import aiohttp_cors
-from pyrogram import Client, client
+from pyrogram import Client
 from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered
 
 # ========================= CONFIG =========================
@@ -172,7 +172,7 @@ async def get_telegram_client(account):
         in_memory=False,
         no_updates=True,
         sleep_threshold=60,
-        workers=1
+        workers=1,
         workdir="/tmp"
     )
 
@@ -500,12 +500,22 @@ async def mailing_worker(mailing_id):
                 try:
                     client = await get_telegram_client(account)
 
-if not client:
-    print("❌ CLIENT DEAD, RETRY AFTER 30 SEC")
-    await asyncio.sleep(30)
-    continue
+if client is None:
+    try:
+        client = await get_telegram_client(account)
 
-print("✅ CLIENT CONNECTED")
+        if not client:
+            print("❌ CLIENT DEAD, RETRY AFTER 30 SEC")
+            await asyncio.sleep(30)
+            continue
+
+        print("✅ CLIENT CONNECTED")
+
+    except Exception as e:
+        print(f"❌ CLIENT CONNECT ERROR: {e}")
+        await asyncio.sleep(10)
+        continue
+    
                 except Exception as e:
                     print(f"❌ CLIENT CONNECT ERROR: {e}")
                     await asyncio.sleep(10)
@@ -598,7 +608,7 @@ print("✅ CLIENT CONNECTED")
         break
 
     await asyncio.sleep(3)
-    
+
             print(f"🔁 КРУГ ЗАВЕРШЁН ({sent} сообщений всего). Следующий круг через 15 сек...")
             await asyncio.sleep(15)
 
