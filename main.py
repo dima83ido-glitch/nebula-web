@@ -29,7 +29,6 @@ async def init_db():
     DATABASE,
     timeout=30
 ) as db:
-        # === ИСПРАВЛЕНИЕ "database is locked" ===
         await db.execute("PRAGMA journal_mode = WAL;")
         await db.execute("PRAGMA busy_timeout = 30000;")
         await db.execute("PRAGMA cache_size = -64000;")
@@ -137,7 +136,7 @@ async def login(request):
     except Exception as e:
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
-   
+    
 async def auto_login(request):
     try:
         data = await request.json()
@@ -156,7 +155,7 @@ async def auto_login(request):
         )
     except Exception as e:
         return json_response(False, str(e))
-   
+    
 async def get_telegram_client(account):
     session_name = account[6]
     session_path = f"sessions/{session_name}"
@@ -178,9 +177,7 @@ async def get_telegram_client(account):
             sleep_threshold=60,
             workers=1
         )
-        # ВАЖНО
         await app.start()
-        # ПРОВЕРКА СЕССИИ
         await app.get_me()
         return app
     except AuthKeyUnregistered:
@@ -203,8 +200,8 @@ async def get_telegram_client(account):
         except:
             pass
         raise
-   
-    # ========================= CREATE USER (для админа) =========================
+
+# ========================= CREATE USER =========================
 async def create_user(request):
     try:
         data = await request.json()
@@ -217,7 +214,7 @@ async def create_user(request):
             if await cursor.fetchone():
                 return json_response(False, "Пользователь с таким логином уже существует")
             hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            await db.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')",
+            await db.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')", 
                            (username, hashed))
             await db.commit()
         return json_response(True, "Пользователь создан", login=username, password=password)
@@ -233,7 +230,6 @@ async def send_code(request):
         user = await get_user(username)
         if not user:
             return json_response(False, "Пользователь не найден")
-        # Лимит аккаунтов
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute(
                 "SELECT COUNT(*) FROM accounts WHERE owner_id=?",
@@ -241,22 +237,15 @@ async def send_code(request):
             )
             count = (await cursor.fetchone())[0]
         if count >= MAX_ACCOUNTS:
-            return json_response(
-                False,
-                f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов"
-            )
+            return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
         phone = data["phone"].strip()
         api_id = int(data["api_id"])
         api_hash = data["api_hash"].strip()
         proxy = data.get("proxy")
-        clean_phone = ''.join(
-            filter(str.isdigit, phone)
-        )
-        # НОРМАЛЬНОЕ ИМЯ СЕССИИ
+        clean_phone = ''.join(filter(str.isdigit, phone))
         session_name = f"{username}_{clean_phone}"
         session_path = f"sessions/{session_name}"
         session_file = f"{session_path}.session"
-        # УДАЛЯЕМ БИТУЮ СЕССИЮ
         if os.path.exists(session_file):
             try:
                 os.remove(session_file)
@@ -290,31 +279,18 @@ async def send_code(request):
             "session_name": session_name
         }
         print(f"✅ Код успешно отправлен: {phone}")
-        return json_response(
-            True,
-            "Код отправлен",
-            auth_id=auth_id
-        )
+        return json_response(True, "Код отправлен", auth_id=auth_id)
     except FloodWait as e:
         print(f"⏳ FLOODWAIT: {e.value}")
-        return json_response(
-            False,
-            f"FloodWait {e.value} сек"
-        )
+        return json_response(False, f"FloodWait {e.value} сек")
     except AuthKeyUnregistered:
         print("❌ AUTH KEY UNREGISTERED")
-        return json_response(
-            False,
-            "Сессия Telegram повреждена. Попробуйте снова."
-        )
+        return json_response(False, "Сессия Telegram повреждена. Попробуйте снова.")
     except Exception as e:
         import traceback
         print(f"❌ send_code ERROR: {str(e)}")
         traceback.print_exc()
-        return json_response(
-            False,
-            f"Ошибка: {str(e)}"
-        )
+        return json_response(False, f"Ошибка: {str(e)}")
 
 async def verify_code(request):
     try:
@@ -352,7 +328,6 @@ async def verify_password(request):
         client = auth["client"]
         print(f"🔐 Проверка 2FA пароля для {auth['phone']}")
         await client.check_password(password)
-       
         me = await client.get_me()
         await save_account(auth, me.username)
         await client.storage.save()
@@ -383,25 +358,14 @@ async def save_account(auth, tg_username):
             if count >= MAX_ACCOUNTS:
                 print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
                 return
-            # ВАЖНО
             session_name = auth["session_name"].replace("sessions/", "")
             await db.execute("""
                 INSERT INTO accounts (
-                    owner_id,
-                    phone,
-                    api_id,
-                    api_hash,
-                    proxy,
-                    session_name
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
+                    owner_id, phone, api_id, api_hash, proxy, session_name
+                ) VALUES (?, ?, ?, ?, ?, ?)
             """, (
-                user[0],
-                auth["phone"],
-                str(auth["api_id"]),
-                auth["api_hash"],
-                None,
-                session_name
+                user[0], auth["phone"], str(auth["api_id"]), 
+                auth["api_hash"], None, session_name
             ))
             await db.commit()
         print(f"Аккаунт сохранён: {auth['phone']}")
@@ -416,8 +380,8 @@ async def list_accounts(request):
             return json_response(False, "Пользователь не найден")
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("""
-                SELECT id, phone FROM accounts
-                WHERE owner_id = ?
+                SELECT id, phone FROM accounts 
+                WHERE owner_id = ? 
                 ORDER BY created_at DESC
             """, (user[0],))
             rows = await cursor.fetchall()
@@ -431,86 +395,40 @@ async def delete_account(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
-
-        session_name = None
-
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT session_name FROM accounts WHERE id=?", 
-                (account_id,)
-            )
+            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
-
             if acc and acc[0]:
-                session_name = acc[0]
-
+                session_file = f"sessions/{acc[0]}.session"
+                if os.path.exists(session_file):
+                    os.remove(session_file)
+                    print(f"✅ Сессия удалена: {session_file}")
             await db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
             await db.commit()
-
-        if session_name:
-            for ext in ["", ".session", ".session-journal"]:
-                session_file = os.path.join(SESSIONS_DIR, f"{session_name}{ext}")
-                if os.path.exists(session_file):
-                    try:
-                        os.remove(session_file)
-                        print(f"🗑 Удалён файл сессии: {session_file}")
-                    except Exception as e:
-                        print(f"⚠️ Не удалось удалить {session_file}: {e}")
-
-        print(f"✅ Аккаунт #{account_id} и его сессия успешно удалены")
         return json_response(True, "Аккаунт и сессия успешно удалены")
-
     except Exception as e:
         print("delete_account error:", str(e))
-        import traceback
-        traceback.print_exc()
-        return json_response(False, f"Ошибка при удалении аккаунта: {str(e)}")
+        return json_response(False, str(e))
 
 async def delete_session(request):
     try:
         data = await request.json()
         account_id = data.get("account_id")
-
         if not account_id:
             return json_response(False, "Не указан ID аккаунта")
-
-        session_name = None
-
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT session_name FROM accounts WHERE id=?", 
-                (account_id,)
-            )
+            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
-
             if acc and acc[0]:
-                session_name = acc[0]
-
-        if not session_name:
-            return json_response(False, "Сессия не найдена")
-
-        deleted = False
-        for ext in ["", ".session", ".session-journal"]:
-            session_file = os.path.join(SESSIONS_DIR, f"{session_name}{ext}")
-            if os.path.exists(session_file):
-                try:
+                session_file = f"sessions/{acc[0]}.session"
+                if os.path.exists(session_file):
                     os.remove(session_file)
-                    print(f"🗑 Удалён файл: {session_file}")
-                    deleted = True
-                except Exception as e:
-                    print(f"⚠️ Не удалось удалить {session_file}: {e}")
-
-        if deleted:
-            return json_response(True, "Сессия успешно удалена")
-        else:
-            return json_response(True, "Сессия не найдена на диске (уже удалена)")
-
+                    print(f"✅ Сессия удалена: {session_file}")
+        return json_response(True, "Сессия успешно удалена")
     except Exception as e:
         print("delete_session error:", str(e))
-        import traceback
-        traceback.print_exc()
-        return json_response(False, f"Ошибка при удалении сессии: {str(e)}")
-   
+        return json_response(False, str(e))
+
 # ========================= GET CHATS =========================
 async def get_chats(request):
     client = None
@@ -518,53 +436,30 @@ async def get_chats(request):
         data = await request.json()
         account_id = data["account_id"]
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(
-                "SELECT * FROM accounts WHERE id=?",
-                (account_id,)
-            )
+            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
         if not acc:
-            return json_response(
-                False,
-                "Аккаунт не найден"
-            )
+            return json_response(False, "Аккаунт не найден")
         try:
             client = await get_telegram_client(acc)
         except Exception as e:
             if "SESSION_DEAD" in str(e):
-                return json_response(
-                    False,
-                    "Сессия Telegram умерла. Перелогиньте аккаунт."
-                )
+                return json_response(False, "Сессия Telegram умерла. Перелогиньте аккаунт.")
             raise
         chats = []
         async for dialog in client.get_dialogs():
             try:
                 chat = dialog.chat
-                title = (
-                    chat.title
-                    or chat.first_name
-                    or chat.username
-                    or "Без названия"
-                )
-                chats.append({
-                    "id": chat.id,
-                    "title": title
-                })
+                title = (chat.title or chat.first_name or chat.username or "Без названия")
+                chats.append({"id": chat.id, "title": title})
             except:
                 pass
-        return json_response(
-            True,
-            chats=chats
-        )
+        return json_response(True, chats=chats)
     except Exception as e:
         import traceback
         print(f"GET CHATS ERROR: {e}")
         traceback.print_exc()
-        return json_response(
-            False,
-            str(e)
-        )
+        return json_response(False, str(e))
     finally:
         try:
             if client:
@@ -579,12 +474,8 @@ async def mailing_worker(mailing_id):
     sent = 0
     try:
         while True:
-            # ================= LOAD MAILING =================
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT * FROM mailings WHERE id=?",
-                    (mailing_id,)
-                )
+                cursor = await db.execute("SELECT * FROM mailings WHERE id=?", (mailing_id,))
                 mailing = await cursor.fetchone()
             if not mailing:
                 print("❌ MAILING DELETED")
@@ -593,18 +484,15 @@ async def mailing_worker(mailing_id):
             if status != "active":
                 await asyncio.sleep(2)
                 continue
-            # ================= LOAD ACCOUNT =================
+
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT * FROM accounts WHERE id=?",
-                    (mailing[2],)
-                )
+                cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (mailing[2],))
                 account = await cursor.fetchone()
             if not account:
                 print("❌ ACCOUNT NOT FOUND")
                 await asyncio.sleep(5)
                 continue
-            # ================= CONNECT CLIENT =================
+
             if client is None:
                 try:
                     client = await get_telegram_client(account)
@@ -613,60 +501,50 @@ async def mailing_worker(mailing_id):
                     print(f"❌ CLIENT CONNECT ERROR: {e}")
                     await asyncio.sleep(10)
                     continue
-            # ================= CHATS =================
+
             try:
                 chats = json.loads(mailing[8] or "[]")
             except:
                 chats = []
+
             if not chats:
                 print("❌ NO CHATS")
                 await asyncio.sleep(5)
                 continue
-            # ================= TEXTS =================
-            texts = [
-                mailing[4] or "",
-                mailing[5] or "",
-                mailing[6] or ""
-            ]
+
+            texts = [mailing[4] or "", mailing[5] or "", mailing[6] or ""]
+            texts = [t for t in texts if t.strip()]
             interval = int(mailing[7] or 3)
-            # ================= SEND =================
-           
+
+            print(f"📨 START SENDING TO {len(chats)} CHATS")
+
             for raw_chat_id in chats:
                 try:
                     chat_id = int(raw_chat_id)
                 except:
-                    print(f"INVALID CHAT ID: {raw_chat_id}")
                     continue
+
                 try:
-                    # проверка активности
                     async with aiosqlite.connect(DATABASE) as db:
-                        cursor = await db.execute(
-                            "SELECT status FROM mailings WHERE id=?",
-                            (mailing_id,)
-                        )
+                        cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
                         current = await cursor.fetchone()
                     if not current or current[0] != "active":
                         print(f"🛑 MAILING STOPPED {mailing_id}")
                         return
-                    # выбор текста
-                    text_index = (sent // 50) % 3
-                    text = texts[text_index]
-                    if not text.strip():
-                        text = texts[0]
-                    if not text.strip():
-                        continue
-                    # отправка
+
+                    # Циклический выбор текста
+                    text = texts[sent % len(texts)] if texts else ""
+
                     await client.send_message(chat_id, text)
                     sent += 1
                     print(f"✅ SENT {sent} -> {chat_id}")
-                    # update db
+
                     async with aiosqlite.connect(DATABASE) as db:
-                        await db.execute(
-                            "UPDATE mailings SET sent_count=? WHERE id=?",
-                            (sent, mailing_id)
-                        )
+                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
                         await db.commit()
+
                     await asyncio.sleep(interval)
+
                 except FloodWait as e:
                     wait_time = int(e.value)
                     print(f"⏳ FLOODWAIT {wait_time}")
@@ -683,8 +561,10 @@ async def mailing_worker(mailing_id):
                 except Exception as e:
                     print(f"❌ SEND ERROR {chat_id}: {e}")
                     await asyncio.sleep(3)
+
             print(f"🔁 ROUND FINISHED {mailing_id}")
             await asyncio.sleep(15)
+
     except asyncio.CancelledError:
         print(f"🛑 MAILING CANCELLED {mailing_id}")
     except Exception as e:
@@ -697,17 +577,18 @@ async def mailing_worker(mailing_id):
         except:
             pass
 
+# ========================= Остальные функции (1:1) =========================
 async def create_mailing(request):
     try:
         data = await request.json()
         user = await get_user(data["username"])
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
-                INSERT INTO mailings (owner_id, account_id, name, text1, text2, text3,
+                INSERT INTO mailings (owner_id, account_id, name, text1, text2, text3, 
                                     interval_seconds, chats, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped')
-            """, (user[0], data["account_id"], data["name"], data.get("text1",""),
-                  data.get("text2",""), data.get("text3",""),
+            """, (user[0], data["account_id"], data["name"], data.get("text1",""), 
+                  data.get("text2",""), data.get("text3",""), 
                   int(data.get("interval", 60)), json.dumps(data.get("chats", []))))
             await db.commit()
         return json_response(True, "Рассылка создана")
@@ -721,26 +602,26 @@ async def list_mailings(request):
         user = await get_user(data["username"])
         async with aiosqlite.connect(DATABASE) as db:
             cursor = await db.execute("""
-                SELECT m.*, a.phone FROM mailings m
-                JOIN accounts a ON m.account_id = a.id
+                SELECT m.*, a.phone FROM mailings m 
+                JOIN accounts a ON m.account_id = a.id 
                 WHERE m.owner_id=?
             """, (user[0],))
             rows = await cursor.fetchall()
         mailings = []
         for r in rows:
             mailings.append({
-    "id": r[0],
-    "account_id": r[2],
-    "name": r[3],
-    "status": r[9],
-    "sent": r[10],
-    "phone": r[11],
-    "text1": r[4],
-    "text2": r[5],
-    "text3": r[6],
-    "interval": r[7],
-    "chats": json.loads(r[8]) if r[8] else []
-})
+                "id": r[0],
+                "account_id": r[2],
+                "name": r[3],
+                "status": r[9],
+                "sent": r[10],
+                "phone": r[11],
+                "text1": r[4],
+                "text2": r[5],
+                "text3": r[6],
+                "interval": r[7],
+                "chats": json.loads(r[8]) if r[8] else []
+            })
         return json_response(True, mailings=mailings)
     except Exception as e:
         print("list_mailings error:", str(e))
@@ -766,11 +647,11 @@ async def update_mailing(request):
         m_id = data["id"]
         async with aiosqlite.connect(DATABASE) as db:
             await db.execute("""
-                UPDATE mailings SET name=?, text1=?, text2=?, text3=?,
+                UPDATE mailings SET name=?, text1=?, text2=?, text3=?, 
                                    interval_seconds=?, chats=?
                 WHERE id=?
-            """, (data["name"], data.get("text1",""), data.get("text2",""),
-                  data.get("text3",""), int(data.get("interval",60)),
+            """, (data["name"], data.get("text1",""), data.get("text2",""), 
+                  data.get("text3",""), int(data.get("interval",60)), 
                   json.dumps(data.get("chats",[])), m_id))
             await db.commit()
         return json_response(True, "Рассылка обновлена")
@@ -783,27 +664,16 @@ async def toggle_mailing(request):
         m_id = data["id"]
         status = data["status"]
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute(
-                "UPDATE mailings SET status=? WHERE id=?",
-                (status, m_id)
-            )
+            await db.execute("UPDATE mailings SET status=? WHERE id=?", (status, m_id))
             await db.commit()
-        # ================= START =================
+
         if status == "active":
-            # если таск уже существует
-            if m_id in active_mailings:
-                old_task = active_mailings[m_id]
-                # если таск умер — удаляем
-                if old_task.done():
-                    del active_mailings[m_id]
-            # создаём новый таск
+            if m_id in active_mailings and active_mailings[m_id].done():
+                del active_mailings[m_id]
             if m_id not in active_mailings:
-                task = asyncio.create_task(
-                    mailing_worker(m_id)
-                )
+                task = asyncio.create_task(mailing_worker(m_id))
                 active_mailings[m_id] = task
                 print(f"✅ MAILING TASK CREATED {m_id}")
-        # ================= STOP =================
         else:
             if m_id in active_mailings:
                 task = active_mailings[m_id]
@@ -845,47 +715,23 @@ async def create_app():
     }
     for path, handler in routes.items():
         app.router.add_post(path, handler)
-    app.router.add_get(
-        "/",
-        lambda r: web.FileResponse("index.html")
-    )
-    cors = aiohttp_cors.setup(
-        app,
-        defaults={
-            "*": aiohttp_cors.ResourceOptions(
-                allow_headers="*",
-                allow_methods="*",
-                allow_credentials=True
-            )
-        }
-    )
+    app.router.add_get("/", lambda r: web.FileResponse("index.html"))
+    cors = aiohttp_cors.setup(app, defaults={"*": aiohttp_cors.ResourceOptions(allow_headers="*", allow_methods="*", allow_credentials=True)})
     for route in list(app.router.routes()):
         cors.add(route)
     app.on_startup.append(start_background_tasks)
     return app
 
-# ========================= AUTO START =========================
 async def start_background_tasks(app):
     async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute(
-            "SELECT id FROM mailings WHERE status='active'"
-        )
+        cursor = await db.execute("SELECT id FROM mailings WHERE status='active'")
         rows = await cursor.fetchall()
     for row in rows:
         mailing_id = row[0]
         if mailing_id not in active_mailings:
-            active_mailings[mailing_id] = asyncio.create_task(
-                mailing_worker(mailing_id)
-            )
+            active_mailings[mailing_id] = asyncio.create_task(mailing_worker(mailing_id))
             print(f"♻️ RESTORED MAILING {mailing_id}")
 
-# ========================= MAIN =========================
 if __name__ == "__main__":
-    asyncio.set_event_loop_policy(
-        asyncio.DefaultEventLoopPolicy()
-    )
-    web.run_app(
-        create_app(),
-        host="0.0.0.0",
-        port=PORT
-    )
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+    web.run_app(create_app(), host="0.0.0.0", port=PORT)
