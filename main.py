@@ -776,36 +776,62 @@ async def update_mailing(request):
 async def toggle_mailing(request):
     try:
         data = await request.json()
+
         m_id = data["id"]
         status = data["status"]
+
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("UPDATE mailings SET status=? WHERE id=?", (status, m_id))
+            await db.execute(
+                "UPDATE mailings SET status=? WHERE id=?",
+                (status, m_id)
+            )
             await db.commit()
 
+        # ================= START =================
         if status == "active":
+
+            # remove dead task
             if m_id in active_mailings:
-    if active_mailings[m_id].done():
-        del active_mailings[m_id]
-                del active_mailings[m_id]
+                if active_mailings[m_id].done():
+                    del active_mailings[m_id]
+
+            # create new task
             if m_id not in active_mailings:
-                task = asyncio.create_task(mailing_worker(m_id))
+
+                task = asyncio.create_task(
+                    mailing_worker(m_id)
+                )
+
                 active_mailings[m_id] = task
+
                 print(f"✅ MAILING TASK CREATED {m_id}")
+
+        # ================= STOP =================
         else:
+
             if m_id in active_mailings:
+
                 task = active_mailings[m_id]
+
                 task.cancel()
+
                 try:
                     await task
                 except:
                     pass
+
                 del active_mailings[m_id]
+
                 print(f"🛑 MAILING TASK STOPPED {m_id}")
+
         return json_response(True)
+
     except Exception as e:
         import traceback
+
         print("toggle_mailing ERROR:", str(e))
         traceback.print_exc()
+
         return json_response(False, str(e))
 
 # ========================= APP =========================
