@@ -692,7 +692,6 @@ async def mailing_worker(mailing_id):
             client = None
 
             await asyncio.sleep(15)
-
 # ========================= Остальные функции (1:1) =========================
 async def create_mailing(request):
     try:
