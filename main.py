@@ -7,7 +7,7 @@ import aiosqlite
 from aiohttp import web
 import aiohttp_cors
 from pyrogram import Client
-from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered, ConnectionError
+from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistered, NetworkError
 
 # ========================= CONFIG =========================
 PORT = int(os.environ.get("PORT", 8080))
@@ -146,7 +146,7 @@ async def mailing_worker(mailing_id: int):
                 await asyncio.sleep(10)
                 continue
 
-            # Переподключение клиента при необходимости
+            # Переподключение клиента
             if client is None:
                 client = await get_telegram_client(account)
                 if not client:
@@ -168,7 +168,7 @@ async def mailing_worker(mailing_id: int):
 
             # Основной цикл отправки
             for raw_id in chats:
-                # Проверка статуса перед каждым сообщением
+                # Проверка статуса
                 async with aiosqlite.connect(DATABASE) as db:
                     status_row = await (await db.execute(
                         "SELECT status FROM mailings WHERE id=?", (mailing_id,)
@@ -193,8 +193,8 @@ async def mailing_worker(mailing_id: int):
                 except FloodWait as e:
                     print(f"⏳ FLOODWAIT {e.value} сек")
                     await asyncio.sleep(e.value)
-                except (AuthKeyUnregistered, ConnectionError):
-                    print("❌ SESSION DEAD → RECONNECT")
+                except (AuthKeyUnregistered, NetworkError):
+                    print("❌ SESSION / NETWORK ERROR → RECONNECT")
                     if client:
                         try: await client.stop()
                         except: pass
@@ -205,7 +205,7 @@ async def mailing_worker(mailing_id: int):
                     print(f"⚠️ SEND ERROR to {chat_id}: {e}")
                     await asyncio.sleep(3)
 
-            await asyncio.sleep(5)  # пауза между полными кругами
+            await asyncio.sleep(5)
 
     except asyncio.CancelledError:
         print(f"🛑 MAILING {mailing_id} WAS CANCELLED")
