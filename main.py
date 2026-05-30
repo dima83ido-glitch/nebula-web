@@ -13,7 +13,13 @@ from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistere
 PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
 MAX_CHATS = 20000
-DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Параметры БД через отдельные переменные (решает проблему со спецсимволами в пароле)
+DB_HOST = os.environ.get("DB_HOST", "aws-1-eu-north-1.pooler.supabase.com")
+DB_PORT = int(os.environ.get("DB_PORT", 5432))
+DB_NAME = os.environ.get("DB_NAME", "postgres")
+DB_USER = os.environ.get("DB_USER", "postgres.bhprvhgplvmueyxewgjs")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 
 os.makedirs("logs", exist_ok=True)
 
@@ -24,7 +30,16 @@ db_pool = None
 # ========================= DATABASE =========================
 async def init_db():
     global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    db_pool = await asyncpg.create_pool(
+        host=DB_HOST,
+        port=DB_PORT,
+        database=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        min_size=2,
+        max_size=10,
+        ssl="require"
+    )
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
