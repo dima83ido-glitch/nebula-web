@@ -3,7 +3,7 @@ import asyncio
 import json
 import uuid
 import bcrypt
-import aiosqlite
+import asyncpg
 from aiohttp import web
 import aiohttp_cors
 from pyrogram import Client
@@ -13,34 +13,31 @@ from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistere
 PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
 MAX_CHATS = 20000
-SESSIONS_DIR = "/opt/render/project/src/sessions"
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs("logs", exist_ok=True)
 
-DATABASE = "nebula.db"
 pending_auths = {}
 active_mailings = {}
+db_pool = None
 
 # ========================= DATABASE =========================
 async def init_db():
-    async with aiosqlite.connect(DATABASE, timeout=30) as db:
-        await db.execute("PRAGMA journal_mode = WAL;")
-        await db.execute("PRAGMA busy_timeout = 30000;")
-        await db.execute("PRAGMA cache_size = -64000;")
-        await db.execute("PRAGMA synchronous = NORMAL;")
-        await db.execute("""
+    global db_pool
+    db_pool = await asyncpg.create_pool(DATABASE_URL, min_size=2, max_size=10)
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 username TEXT UNIQUE,
                 password TEXT,
                 role TEXT DEFAULT 'user',
                 remember_token TEXT
             )
         """)
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 owner_id INTEGER,
                 phone TEXT,
                 api_id TEXT,
@@ -51,14 +48,9 @@ async def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Добавляем колонку session_string если её ещё нет (для старых БД)
-        try:
-            await db.execute("ALTER TABLE accounts ADD COLUMN session_string TEXT")
-        except:
-            pass
-        await db.execute("""
+        await conn.execute("""
             CREATE TABLE IF NOT EXISTS mailings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id SERIAL PRIMARY KEY,
                 owner_id INTEGER,
                 account_id INTEGER,
                 name TEXT,
@@ -71,28 +63,27 @@ async def init_db():
                 sent_count INTEGER DEFAULT 0
             )
         """)
-        await db.commit()
-        await create_admin()
+    await create_admin()
+    print("✅ Database initialized")
 
 async def create_admin():
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM users WHERE username=?", ("admin",))
-        if not await cursor.fetchone():
+    async with db_pool.acquire() as conn:
+        existing = await conn.fetchrow("SELECT * FROM users WHERE username=$1", "admin")
+        if not existing:
             hashed = bcrypt.hashpw("orion123".encode(), bcrypt.gensalt()).decode()
-            await db.execute(
-                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                ("admin", hashed, "admin")
+            await conn.execute(
+                "INSERT INTO users (username, password, role) VALUES ($1, $2, $3)",
+                "admin", hashed, "admin"
             )
-            await db.commit()
+            print("✅ Admin created")
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
     return web.json_response({"status": status, "message": message, **kwargs})
 
 async def get_user(username):
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT * FROM users WHERE username=?", (username,))
-        return await cursor.fetchone()
+    async with db_pool.acquire() as conn:
+        return await conn.fetchrow("SELECT * FROM users WHERE username=$1", username)
 
 # ========================= AUTH =========================
 async def register(request):
@@ -100,13 +91,13 @@ async def register(request):
         data = await request.json()
         username = data.get("username")
         password = data.get("password")
-        async with aiosqlite.connect(DATABASE) as db:
-            if await (await db.execute("SELECT * FROM users WHERE username=?", (username,))).fetchone():
+        async with db_pool.acquire() as conn:
+            existing = await conn.fetchrow("SELECT id FROM users WHERE username=$1", username)
+            if existing:
                 return json_response(False, "Пользователь уже существует")
             hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            await db.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed))
-            await db.commit()
-            return json_response(True, "Регистрация успешна")
+            await conn.execute("INSERT INTO users (username, password) VALUES ($1, $2)", username, hashed)
+        return json_response(True, "Регистрация успешна")
     except Exception as e:
         return json_response(False, str(e))
 
@@ -121,14 +112,13 @@ async def login(request):
         user = await get_user(username)
         if not user:
             return json_response(False, "Пользователь не найден")
-        if not bcrypt.checkpw(password.encode(), user[2].encode()):
+        if not bcrypt.checkpw(password.encode(), user["password"].encode()):
             return json_response(False, "Неверный пароль")
         token = str(uuid.uuid4())
         if remember:
-            async with aiosqlite.connect(DATABASE) as db:
-                await db.execute("UPDATE users SET remember_token=? WHERE username=?", (token, username))
-                await db.commit()
-        return json_response(True, "Успешный вход", token=token, role=user[3])
+            async with db_pool.acquire() as conn:
+                await conn.execute("UPDATE users SET remember_token=$1 WHERE username=$2", token, username)
+        return json_response(True, "Успешный вход", token=token, role=user["role"])
     except Exception as e:
         print("Login error:", str(e))
         return json_response(False, "Ошибка сервера")
@@ -137,63 +127,37 @@ async def auto_login(request):
     try:
         data = await request.json()
         token = data.get("token")
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM users WHERE remember_token=?", (token,))
-            user = await cursor.fetchone()
+        async with db_pool.acquire() as conn:
+            user = await conn.fetchrow("SELECT * FROM users WHERE remember_token=$1", token)
             if not user:
                 return json_response(False)
-            return json_response(True, role=user[3])
+            return json_response(True, role=user["role"])
     except Exception as e:
         return json_response(False, str(e))
 
 # ========================= TELEGRAM CLIENT =========================
 async def get_telegram_client(account):
-    """
-    account[7] — session_string (сохранённая строка сессии в БД).
-    Если есть — используем in_memory режим, сессия не зависит от диска Render.
-    Если нет — fallback на файл (для старых аккаунтов).
-    """
     app = None
     try:
-        # account columns: 0=id, 1=owner_id, 2=phone, 3=api_id, 4=api_hash,
-        #                   5=proxy, 6=session_name, 7=session_string
-        session_string = account[7] if len(account) > 7 else None
+        session_string = account["session_string"]
+        if not session_string:
+            return None
 
-        if session_string:
-            app = Client(
-                name="nebula_session",
-                api_id=int(account[3]),
-                api_hash=account[4],
-                session_string=session_string,
-                proxy=account[5] if account[5] else None,
-                device_model="iPhone 15 Pro",
-                system_version="iOS 17.0",
-                app_version="10.6.0",
-                lang_code="ru",
-                in_memory=True,
-                no_updates=True,
-                sleep_threshold=60,
-                workers=1
-            )
-        else:
-            # Старый аккаунт без session_string — пробуем файл
-            session_name = account[6]
-            session_path = f"{SESSIONS_DIR}/{session_name}"
-            app = Client(
-                name=session_path,
-                api_id=int(account[3]),
-                api_hash=account[4],
-                proxy=account[5] if account[5] else None,
-                device_model="iPhone 15 Pro",
-                system_version="iOS 17.0",
-                app_version="10.6.0",
-                lang_code="ru",
-                in_memory=False,
-                no_updates=True,
-                sleep_threshold=60,
-                workers=1
-            )
-
+        app = Client(
+            name="nebula_session",
+            api_id=int(account["api_id"]),
+            api_hash=account["api_hash"],
+            session_string=session_string,
+            proxy=account["proxy"] if account["proxy"] else None,
+            device_model="iPhone 15 Pro",
+            system_version="iOS 17.0",
+            app_version="10.6.0",
+            lang_code="ru",
+            in_memory=True,
+            no_updates=True,
+            sleep_threshold=60,
+            workers=1
+        )
         await app.start()
         await app.get_me()
         return app
@@ -223,14 +187,16 @@ async def create_user(request):
         password = data.get("password")
         if not username or not password:
             return json_response(False, "Введите логин и пароль")
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM users WHERE username=?", (username,))
-            if await cursor.fetchone():
+        async with db_pool.acquire() as conn:
+            existing = await conn.fetchrow("SELECT id FROM users WHERE username=$1", username)
+            if existing:
                 return json_response(False, "Пользователь с таким логином уже существует")
             hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            await db.execute("INSERT INTO users (username, password, role) VALUES (?, ?, 'user')", (username, hashed))
-            await db.commit()
-            return json_response(True, "Пользователь создан", login=username, password=password)
+            await conn.execute(
+                "INSERT INTO users (username, password, role) VALUES ($1, $2, 'user')",
+                username, hashed
+            )
+        return json_response(True, "Пользователь создан", login=username, password=password)
     except Exception as e:
         print("create_user error:", str(e))
         return json_response(False, "Ошибка при создании пользователя")
@@ -243,9 +209,9 @@ async def send_code(request):
         user = await get_user(username)
         if not user:
             return json_response(False, "Пользователь не найден")
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
-            count = (await cursor.fetchone())[0]
+
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval("SELECT COUNT(*) FROM accounts WHERE owner_id=$1", user["id"])
             if count >= MAX_ACCOUNTS:
                 return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
 
@@ -258,7 +224,6 @@ async def send_code(request):
 
         print(f"🔄 Отправка кода на номер: {phone}")
 
-        # Используем in_memory=True чтобы не зависеть от диска
         client = Client(
             name="auth_temp",
             api_id=api_id,
@@ -317,7 +282,6 @@ async def verify_code(request):
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
-            # Клиента НЕ закрываем — он нужен для verify_password
             return json_response(True, "Требуется 2FA пароль", need_password=True)
         except Exception as e:
             try:
@@ -340,7 +304,6 @@ async def verify_password(request):
         print(f"🔐 Проверка 2FA пароля для {auth['phone']}")
         await client.check_password(password)
         me = await client.get_me()
-        # Экспортируем строку сессии и сохраняем в БД
         session_string = await client.export_session_string()
         await save_account(auth, me.username, session_string)
         await client.disconnect()
@@ -362,28 +325,24 @@ async def save_account(auth, tg_username, session_string=None):
         user = await get_user(auth["username"])
         if not user:
             return
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM accounts WHERE owner_id=?", (user[0],))
-            count = (await cursor.fetchone())[0]
+        async with db_pool.acquire() as conn:
+            count = await conn.fetchval("SELECT COUNT(*) FROM accounts WHERE owner_id=$1", user["id"])
             if count >= MAX_ACCOUNTS:
                 print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
                 return
-            session_name = auth["session_name"].replace("sessions/", "")
-            await db.execute("""
-                INSERT INTO accounts (
-                    owner_id, phone, api_id, api_hash, proxy, session_name, session_string
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                user[0],
+            await conn.execute("""
+                INSERT INTO accounts (owner_id, phone, api_id, api_hash, proxy, session_name, session_string)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            """,
+                user["id"],
                 auth["phone"],
                 str(auth["api_id"]),
                 auth["api_hash"],
                 auth.get("proxy"),
-                session_name,
+                auth["session_name"],
                 session_string
-            ))
-            await db.commit()
-            print(f"✅ Аккаунт сохранён: {auth['phone']}")
+            )
+        print(f"✅ Аккаунт сохранён: {auth['phone']}")
     except Exception as e:
         print("Ошибка save_account:", str(e))
 
@@ -393,13 +352,13 @@ async def list_accounts(request):
         user = await get_user(data["username"])
         if not user:
             return json_response(False, "Пользователь не найден")
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("""
-                SELECT id, phone FROM accounts WHERE owner_id = ? ORDER BY created_at DESC
-            """, (user[0],))
-            rows = await cursor.fetchall()
-            accounts = [{"id": r[0], "phone": r[1]} for r in rows]
-            return json_response(True, accounts=accounts)
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT id, phone FROM accounts WHERE owner_id=$1 ORDER BY created_at DESC",
+                user["id"]
+            )
+        accounts = [{"id": r["id"], "phone": r["phone"]} for r in rows]
+        return json_response(True, accounts=accounts)
     except Exception as e:
         print("list_accounts error:", str(e))
         return json_response(False, str(e))
@@ -408,17 +367,9 @@ async def delete_account(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
-            acc = await cursor.fetchone()
-            if acc and acc[0]:
-                session_file = f"{SESSIONS_DIR}/{acc[0]}.session"
-                if os.path.exists(session_file):
-                    os.remove(session_file)
-                    print(f"✅ Сессия удалена: {session_file}")
-            await db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
-            await db.commit()
-            return json_response(True, "Аккаунт и сессия успешно удалены")
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM accounts WHERE id=$1", account_id)
+        return json_response(True, "Аккаунт успешно удалён")
     except Exception as e:
         print("delete_account error:", str(e))
         return json_response(False, str(e))
@@ -429,15 +380,9 @@ async def delete_session(request):
         account_id = data.get("account_id")
         if not account_id:
             return json_response(False, "Не указан ID аккаунта")
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
-            acc = await cursor.fetchone()
-            if acc and acc[0]:
-                session_file = f"{SESSIONS_DIR}/{acc[0]}.session"
-                if os.path.exists(session_file):
-                    os.remove(session_file)
-                    print(f"✅ Сессия удалена: {session_file}")
-            return json_response(True, "Сессия успешно удалена")
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE accounts SET session_string=NULL WHERE id=$1", account_id)
+        return json_response(True, "Сессия успешно удалена")
     except Exception as e:
         print("delete_session error:", str(e))
         return json_response(False, str(e))
@@ -448,11 +393,10 @@ async def get_chats(request):
     try:
         data = await request.json()
         account_id = data["account_id"]
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("SELECT * FROM accounts WHERE id=?", (account_id,))
-            acc = await cursor.fetchone()
-            if not acc:
-                return json_response(False, "Аккаунт не найден")
+        async with db_pool.acquire() as conn:
+            acc = await conn.fetchrow("SELECT * FROM accounts WHERE id=$1", account_id)
+        if not acc:
+            return json_response(False, "Аккаунт не найден")
 
         client = await get_telegram_client(acc)
         if not client:
@@ -487,31 +431,28 @@ async def mailing_worker(mailing_id):
 
     try:
         while True:
-            # Проверяем статус в БД
-            async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute("SELECT status, sent_count FROM mailings WHERE id=?", (mailing_id,))
-                mailing = await cursor.fetchone()
+            async with db_pool.acquire() as conn:
+                mailing = await conn.fetchrow(
+                    "SELECT status, sent_count FROM mailings WHERE id=$1", mailing_id
+                )
 
-            if not mailing or mailing[0] != "active":
+            if not mailing or mailing["status"] != "active":
                 print(f"🛑 Mailing {mailing_id} stopped (status check)")
                 break
 
-            sent = mailing[1]
+            sent = mailing["sent_count"]
 
-            # Загружаем аккаунт
-            async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT * FROM accounts WHERE id=(SELECT account_id FROM mailings WHERE id=?)",
-                    (mailing_id,)
+            async with db_pool.acquire() as conn:
+                account = await conn.fetchrow(
+                    "SELECT * FROM accounts WHERE id=(SELECT account_id FROM mailings WHERE id=$1)",
+                    mailing_id
                 )
-                account = await cursor.fetchone()
 
             if not account:
                 print(f"⚠️ No account for mailing {mailing_id}, retry in 10s")
                 await asyncio.sleep(10)
                 continue
 
-            # Подключаем клиент если нет
             if client is None:
                 client = await get_telegram_client(account)
                 if not client:
@@ -519,26 +460,24 @@ async def mailing_worker(mailing_id):
                     await asyncio.sleep(15)
                     continue
 
-            # Загружаем данные рассылки
-            async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute(
-                    "SELECT text1, text2, text3, interval_seconds, chats FROM mailings WHERE id=?",
-                    (mailing_id,)
+            async with db_pool.acquire() as conn:
+                data = await conn.fetchrow(
+                    "SELECT text1, text2, text3, interval_seconds, chats FROM mailings WHERE id=$1",
+                    mailing_id
                 )
-                data = await cursor.fetchone()
 
             if not data:
                 await asyncio.sleep(10)
                 continue
 
-            texts = [t.strip() for t in [data[0], data[1], data[2]] if t and t.strip()]
+            texts = [t.strip() for t in [data["text1"], data["text2"], data["text3"]] if t and t.strip()]
             if not texts:
                 await asyncio.sleep(10)
                 continue
 
-            interval = int(data[3] or 5)
+            interval = int(data["interval_seconds"] or 5)
             try:
-                chats = json.loads(data[4] or "[]")
+                chats = json.loads(data["chats"] or "[]")
             except:
                 chats = []
 
@@ -546,29 +485,25 @@ async def mailing_worker(mailing_id):
                 await asyncio.sleep(10)
                 continue
 
-            # === ОСНОВНОЙ ЦИКЛ ОТПРАВКИ ===
             for raw_chat_id in chats:
-                # Проверяем что задача не отменена
-                await asyncio.sleep(0)  # даём event loop шанс поймать CancelledError
+                await asyncio.sleep(0)
 
-                # Проверяем статус в БД каждые N чатов
-                async with aiosqlite.connect(DATABASE) as db:
-                    cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
-                    row = await cursor.fetchone()
-                if not row or row[0] != "active":
+                async with db_pool.acquire() as conn:
+                    row = await conn.fetchrow("SELECT status FROM mailings WHERE id=$1", mailing_id)
+                if not row or row["status"] != "active":
                     print(f"🛑 Mailing {mailing_id} stopped mid-loop")
                     return
 
                 try:
                     chat_id = int(raw_chat_id)
                     text = texts[sent % len(texts)]
-
                     await client.send_message(chat_id, text)
                     sent += 1
 
-                    async with aiosqlite.connect(DATABASE) as db:
-                        await db.execute("UPDATE mailings SET sent_count=? WHERE id=?", (sent, mailing_id))
-                        await db.commit()
+                    async with db_pool.acquire() as conn:
+                        await conn.execute(
+                            "UPDATE mailings SET sent_count=$1 WHERE id=$2", sent, mailing_id
+                        )
 
                     print(f"✅ SENT #{sent} -> {chat_id} (mailing {mailing_id})")
 
@@ -583,14 +518,13 @@ async def mailing_worker(mailing_id):
                     except:
                         pass
                     client = None
-                    break  # выходим из for, while переподключит
+                    break
                 except Exception as e:
                     print(f"❌ Send error to {chat_id}: {e}")
                     await asyncio.sleep(3)
 
                 await asyncio.sleep(interval)
 
-            # Пауза между полными кругами по всем чатам
             await asyncio.sleep(5)
 
     except asyncio.CancelledError:
@@ -605,14 +539,12 @@ async def mailing_worker(mailing_id):
                 await client.stop()
             except:
                 pass
-        # Сбрасываем статус если воркер упал сам
         try:
-            async with aiosqlite.connect(DATABASE) as db:
-                await db.execute(
-                    "UPDATE mailings SET status='stopped' WHERE id=? AND status='active'",
-                    (mailing_id,)
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE mailings SET status='stopped' WHERE id=$1 AND status='active'",
+                    mailing_id
                 )
-                await db.commit()
         except:
             pass
         if mailing_id in active_mailings:
@@ -624,14 +556,12 @@ async def create_mailing(request):
     try:
         data = await request.json()
         user = await get_user(data["username"])
-        async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("""
-                INSERT INTO mailings (
-                    owner_id, account_id, name, text1, text2, text3,
-                    interval_seconds, chats, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped')
-            """, (
-                user[0],
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                INSERT INTO mailings (owner_id, account_id, name, text1, text2, text3, interval_seconds, chats, status)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'stopped')
+            """,
+                user["id"],
                 data["account_id"],
                 data["name"],
                 data.get("text1", ""),
@@ -639,8 +569,7 @@ async def create_mailing(request):
                 data.get("text3", ""),
                 int(data.get("interval", 60)),
                 json.dumps(data.get("chats", []))
-            ))
-            await db.commit()
+            )
         return json_response(True, "Рассылка создана")
     except Exception as e:
         print("create_mailing error:", str(e))
@@ -650,28 +579,27 @@ async def list_mailings(request):
     try:
         data = await request.json()
         user = await get_user(data["username"])
-        async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute("""
+        async with db_pool.acquire() as conn:
+            rows = await conn.fetch("""
                 SELECT m.*, a.phone
                 FROM mailings m
                 JOIN accounts a ON m.account_id = a.id
-                WHERE m.owner_id=?
-            """, (user[0],))
-            rows = await cursor.fetchall()
+                WHERE m.owner_id=$1
+            """, user["id"])
         mailings = []
         for r in rows:
             mailings.append({
-                "id": r[0],
-                "account_id": r[2],
-                "name": r[3],
-                "status": r[9],
-                "sent": r[10],
-                "phone": r[11],
-                "text1": r[4],
-                "text2": r[5],
-                "text3": r[6],
-                "interval": r[7],
-                "chats": json.loads(r[8]) if r[8] else []
+                "id": r["id"],
+                "account_id": r["account_id"],
+                "name": r["name"],
+                "status": r["status"],
+                "sent": r["sent_count"],
+                "phone": r["phone"],
+                "text1": r["text1"],
+                "text2": r["text2"],
+                "text3": r["text3"],
+                "interval": r["interval_seconds"],
+                "chats": json.loads(r["chats"]) if r["chats"] else []
             })
         return json_response(True, mailings=mailings)
     except Exception as e:
@@ -682,9 +610,8 @@ async def delete_mailing(request):
     try:
         data = await request.json()
         m_id = data["id"]
-        async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("DELETE FROM mailings WHERE id=?", (m_id,))
-            await db.commit()
+        async with db_pool.acquire() as conn:
+            await conn.execute("DELETE FROM mailings WHERE id=$1", m_id)
         if m_id in active_mailings:
             active_mailings[m_id].cancel()
             del active_mailings[m_id]
@@ -696,12 +623,12 @@ async def update_mailing(request):
     try:
         data = await request.json()
         m_id = data["id"]
-        async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("""
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
                 UPDATE mailings
-                SET name=?, text1=?, text2=?, text3=?, interval_seconds=?, chats=?
-                WHERE id=?
-            """, (
+                SET name=$1, text1=$2, text2=$3, text3=$4, interval_seconds=$5, chats=$6
+                WHERE id=$7
+            """,
                 data["name"],
                 data.get("text1", ""),
                 data.get("text2", ""),
@@ -709,8 +636,7 @@ async def update_mailing(request):
                 int(data.get("interval", 60)),
                 json.dumps(data.get("chats", [])),
                 m_id
-            ))
-            await db.commit()
+            )
         return json_response(True, "Рассылка обновлена")
     except Exception as e:
         return json_response(False, str(e))
@@ -721,21 +647,17 @@ async def toggle_mailing(request):
         m_id = int(data["id"])
         status = data["status"]
 
-        async with aiosqlite.connect(DATABASE) as db:
-            await db.execute("UPDATE mailings SET status=? WHERE id=?", (status, m_id))
-            await db.commit()
+        async with db_pool.acquire() as conn:
+            await conn.execute("UPDATE mailings SET status=$1 WHERE id=$2", status, m_id)
 
         if status == "active":
-            # Убираем мертвую задачу если есть
             if m_id in active_mailings and active_mailings[m_id].done():
                 del active_mailings[m_id]
-
             if m_id not in active_mailings:
                 task = asyncio.create_task(mailing_worker(m_id))
                 active_mailings[m_id] = task
                 print(f"✅ MAILING STARTED {m_id}")
-
-        else:  # stopped
+        else:
             if m_id in active_mailings:
                 task = active_mailings[m_id]
                 task.cancel()
@@ -791,11 +713,10 @@ async def create_app():
     return app
 
 async def start_background_tasks(app):
-    async with aiosqlite.connect(DATABASE) as db:
-        cursor = await db.execute("SELECT id FROM mailings WHERE status='active'")
-        rows = await cursor.fetchall()
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id FROM mailings WHERE status='active'")
         for row in rows:
-            mailing_id = row[0]
+            mailing_id = row["id"]
             if mailing_id not in active_mailings:
                 active_mailings[mailing_id] = asyncio.create_task(mailing_worker(mailing_id))
                 print(f"♻️ RESTORED MAILING {mailing_id}")
