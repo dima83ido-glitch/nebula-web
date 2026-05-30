@@ -411,12 +411,9 @@ async def get_chats(request):
             acc = await cursor.fetchone()
             if not acc:
                 return json_response(False, "Аккаунт не найден")
-        try:
-            client = await get_telegram_client(acc)
-        except Exception as e:
-            if "SESSION_DEAD" in str(e):
-                return json_response(False, "Сессия Telegram умерла. Перелогиньте аккаунт.")
-            raise
+        client = await get_telegram_client(acc)
+        if not client:
+            return json_response(False, "Не удалось подключиться к Telegram. Сессия мертва — удалите аккаунт и добавьте заново.")
         chats = []
         async for dialog in client.get_dialogs():
             try:
