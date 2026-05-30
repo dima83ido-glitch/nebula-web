@@ -29,7 +29,7 @@ async def init_db():
         await db.execute("PRAGMA busy_timeout = 30000;")
         await db.execute("PRAGMA cache_size = -64000;")
         await db.execute("PRAGMA synchronous = NORMAL;")
-        await db.execute(""" 
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE,
@@ -38,7 +38,7 @@ async def init_db():
                 remember_token TEXT
             )
         """)
-        await db.execute(""" 
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 owner_id INTEGER,
@@ -47,10 +47,16 @@ async def init_db():
                 api_hash TEXT,
                 proxy TEXT,
                 session_name TEXT,
+                session_string TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        await db.execute(""" 
+        # Добавляем колонку session_string если её ещё нет (для старых БД)
+        try:
+            await db.execute("ALTER TABLE accounts ADD COLUMN session_string TEXT")
+        except:
+            pass
+        await db.execute("""
             CREATE TABLE IF NOT EXISTS mailings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 owner_id INTEGER,
@@ -140,38 +146,71 @@ async def auto_login(request):
     except Exception as e:
         return json_response(False, str(e))
 
+# ========================= TELEGRAM CLIENT =========================
 async def get_telegram_client(account):
+    """
+    account[7] — session_string (сохранённая строка сессии в БД).
+    Если есть — используем in_memory режим, сессия не зависит от диска Render.
+    Если нет — fallback на файл (для старых аккаунтов).
+    """
+    app = None
     try:
-        session_name = account[6]
-        session_path = f"{SESSIONS_DIR}/{session_name}"
-        app = Client(
-            name=session_path,
-            api_id=int(account[3]),
-            api_hash=account[4],
-            proxy=account[5] if account[5] else None,
-            device_model="iPhone 15 Pro",
-            system_version="iOS 17.0",
-            app_version="10.6.0",
-            lang_code="ru",
-            in_memory=False,
-            no_updates=True,
-            sleep_threshold=60,
-            workers=1
-        )
+        # account columns: 0=id, 1=owner_id, 2=phone, 3=api_id, 4=api_hash,
+        #                   5=proxy, 6=session_name, 7=session_string
+        session_string = account[7] if len(account) > 7 else None
+
+        if session_string:
+            app = Client(
+                name="nebula_session",
+                api_id=int(account[3]),
+                api_hash=account[4],
+                session_string=session_string,
+                proxy=account[5] if account[5] else None,
+                device_model="iPhone 15 Pro",
+                system_version="iOS 17.0",
+                app_version="10.6.0",
+                lang_code="ru",
+                in_memory=True,
+                no_updates=True,
+                sleep_threshold=60,
+                workers=1
+            )
+        else:
+            # Старый аккаунт без session_string — пробуем файл
+            session_name = account[6]
+            session_path = f"{SESSIONS_DIR}/{session_name}"
+            app = Client(
+                name=session_path,
+                api_id=int(account[3]),
+                api_hash=account[4],
+                proxy=account[5] if account[5] else None,
+                device_model="iPhone 15 Pro",
+                system_version="iOS 17.0",
+                app_version="10.6.0",
+                lang_code="ru",
+                in_memory=False,
+                no_updates=True,
+                sleep_threshold=60,
+                workers=1
+            )
+
         await app.start()
         await app.get_me()
         return app
+
     except AuthKeyUnregistered:
-        print("❌ AUTH KEY DEAD")
+        print("❌ AUTH KEY DEAD — сессия невалидна")
         try:
-            await app.stop()
+            if app:
+                await app.stop()
         except:
             pass
         return None
     except Exception as e:
         print(f"❌ CLIENT ERROR: {e}")
         try:
-            await app.stop()
+            if app:
+                await app.stop()
         except:
             pass
         return None
@@ -209,26 +248,19 @@ async def send_code(request):
             count = (await cursor.fetchone())[0]
             if count >= MAX_ACCOUNTS:
                 return json_response(False, f"Достигнут лимит {MAX_ACCOUNTS} аккаунтов")
-        
+
         phone = data["phone"].strip()
         api_id = int(data["api_id"])
         api_hash = data["api_hash"].strip()
         proxy = data.get("proxy")
         clean_phone = ''.join(filter(str.isdigit, phone))
         session_name = f"{username}_{clean_phone}"
-        session_path = f"{SESSIONS_DIR}/{session_name}"
-        session_file = f"{session_path}.session"
-
-        if os.path.exists(session_file):
-            try:
-                os.remove(session_file)
-                print(f"🗑 OLD SESSION REMOVED: {session_file}")
-            except Exception as e:
-                print(f"❌ DELETE SESSION ERROR: {e}")
 
         print(f"🔄 Отправка кода на номер: {phone}")
+
+        # Используем in_memory=True чтобы не зависеть от диска
         client = Client(
-            name=session_path,
+            name="auth_temp",
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy if proxy else None,
@@ -236,25 +268,28 @@ async def send_code(request):
             system_version="iOS 17.0",
             app_version="10.6.0",
             lang_code="ru",
+            in_memory=True,
             no_updates=True,
             workers=1,
             sleep_threshold=30
         )
         await client.connect()
         sent_code = await client.send_code(phone)
-        
+
         auth_id = str(uuid.uuid4())
         pending_auths[auth_id] = {
             "client": client,
             "phone": phone,
             "api_id": api_id,
             "api_hash": api_hash,
+            "proxy": proxy,
             "phone_code_hash": sent_code.phone_code_hash,
             "username": username,
             "session_name": session_name
         }
         print(f"✅ Код успешно отправлен: {phone}")
         return json_response(True, "Код отправлен", auth_id=auth_id)
+
     except FloodWait as e:
         print(f"⏳ FLOODWAIT: {e.value}")
         return json_response(False, f"FloodWait {e.value} сек")
@@ -276,15 +311,19 @@ async def verify_code(request):
         try:
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
-            await save_account(auth, me.username)
-            await client.storage.save()
+            session_string = await client.export_session_string()
+            await save_account(auth, me.username, session_string)
             await client.disconnect()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
+            # Клиента НЕ закрываем — он нужен для verify_password
             return json_response(True, "Требуется 2FA пароль", need_password=True)
         except Exception as e:
-            await client.disconnect()
+            try:
+                await client.disconnect()
+            except:
+                pass
             return json_response(False, f"Ошибка: {str(e)}")
     except Exception as e:
         return json_response(False, "Ошибка сервера")
@@ -301,8 +340,9 @@ async def verify_password(request):
         print(f"🔐 Проверка 2FA пароля для {auth['phone']}")
         await client.check_password(password)
         me = await client.get_me()
-        await save_account(auth, me.username)
-        await client.storage.save()
+        # Экспортируем строку сессии и сохраняем в БД
+        session_string = await client.export_session_string()
+        await save_account(auth, me.username, session_string)
         await client.disconnect()
         del pending_auths[auth_id]
         print(f"✅ 2FA успешно пройден для {auth['phone']}")
@@ -310,13 +350,14 @@ async def verify_password(request):
     except Exception as e:
         print("❌ verify_password ERROR:", str(e))
         try:
-            if 'client' in locals():
-                await client.disconnect()
+            auth = pending_auths.get(data.get("auth_id", ""))
+            if auth:
+                await auth["client"].disconnect()
         except:
             pass
         return json_response(False, f"Ошибка 2FA: {str(e)}")
 
-async def save_account(auth, tg_username):
+async def save_account(auth, tg_username, session_string=None):
     try:
         user = await get_user(auth["username"])
         if not user:
@@ -328,20 +369,21 @@ async def save_account(auth, tg_username):
                 print(f"Лимит {MAX_ACCOUNTS} аккаунтов достигнут!")
                 return
             session_name = auth["session_name"].replace("sessions/", "")
-            await db.execute(""" 
+            await db.execute("""
                 INSERT INTO accounts (
-                    owner_id, phone, api_id, api_hash, proxy, session_name
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    owner_id, phone, api_id, api_hash, proxy, session_name, session_string
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 user[0],
                 auth["phone"],
                 str(auth["api_id"]),
                 auth["api_hash"],
-                None,
-                session_name
+                auth.get("proxy"),
+                session_name,
+                session_string
             ))
             await db.commit()
-            print(f"Аккаунт сохранён: {auth['phone']}")
+            print(f"✅ Аккаунт сохранён: {auth['phone']}")
     except Exception as e:
         print("Ошибка save_account:", str(e))
 
@@ -352,7 +394,7 @@ async def list_accounts(request):
         if not user:
             return json_response(False, "Пользователь не найден")
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(""" 
+            cursor = await db.execute("""
                 SELECT id, phone FROM accounts WHERE owner_id = ? ORDER BY created_at DESC
             """, (user[0],))
             rows = await cursor.fetchall()
@@ -370,7 +412,7 @@ async def delete_account(request):
             cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
             if acc and acc[0]:
-                session_file = f"sessions/{acc[0]}.session"
+                session_file = f"{SESSIONS_DIR}/{acc[0]}.session"
                 if os.path.exists(session_file):
                     os.remove(session_file)
                     print(f"✅ Сессия удалена: {session_file}")
@@ -391,7 +433,7 @@ async def delete_session(request):
             cursor = await db.execute("SELECT session_name FROM accounts WHERE id=?", (account_id,))
             acc = await cursor.fetchone()
             if acc and acc[0]:
-                session_file = f"sessions/{acc[0]}.session"
+                session_file = f"{SESSIONS_DIR}/{acc[0]}.session"
                 if os.path.exists(session_file):
                     os.remove(session_file)
                     print(f"✅ Сессия удалена: {session_file}")
@@ -411,9 +453,11 @@ async def get_chats(request):
             acc = await cursor.fetchone()
             if not acc:
                 return json_response(False, "Аккаунт не найден")
+
         client = await get_telegram_client(acc)
         if not client:
-            return json_response(False, "Не удалось подключиться к Telegram. Сессия мертва — удалите аккаунт и добавьте заново.")
+            return json_response(False, "Не удалось подключиться к Telegram. Удалите аккаунт и добавьте заново.")
+
         chats = []
         async for dialog in client.get_dialogs():
             try:
@@ -423,6 +467,7 @@ async def get_chats(request):
             except:
                 pass
         return json_response(True, chats=chats)
+
     except Exception as e:
         import traceback
         print(f"GET CHATS ERROR: {e}")
@@ -439,44 +484,52 @@ async def get_chats(request):
 async def mailing_worker(mailing_id):
     print(f"🚀 MAILING WORKER STARTED {mailing_id}")
     client = None
-    sent = 0
 
     try:
         while True:
-            # Проверяем статус
+            # Проверяем статус в БД
             async with aiosqlite.connect(DATABASE) as db:
                 cursor = await db.execute("SELECT status, sent_count FROM mailings WHERE id=?", (mailing_id,))
                 mailing = await cursor.fetchone()
 
             if not mailing or mailing[0] != "active":
-                print(f"🛑 Mailing {mailing_id} stopped")
+                print(f"🛑 Mailing {mailing_id} stopped (status check)")
                 break
 
             sent = mailing[1]
 
             # Загружаем аккаунт
             async with aiosqlite.connect(DATABASE) as db:
-                cursor = await db.execute("SELECT * FROM accounts WHERE id=(SELECT account_id FROM mailings WHERE id=?)", (mailing_id,))
+                cursor = await db.execute(
+                    "SELECT * FROM accounts WHERE id=(SELECT account_id FROM mailings WHERE id=?)",
+                    (mailing_id,)
+                )
                 account = await cursor.fetchone()
 
             if not account:
+                print(f"⚠️ No account for mailing {mailing_id}, retry in 10s")
                 await asyncio.sleep(10)
                 continue
 
-            # (Пере)подключаем клиент
+            # Подключаем клиент если нет
             if client is None:
                 client = await get_telegram_client(account)
                 if not client:
+                    print(f"⚠️ Can't connect client for mailing {mailing_id}, retry in 15s")
                     await asyncio.sleep(15)
                     continue
 
             # Загружаем данные рассылки
             async with aiosqlite.connect(DATABASE) as db:
                 cursor = await db.execute(
-                    "SELECT text1, text2, text3, interval_seconds, chats FROM mailings WHERE id=?", 
+                    "SELECT text1, text2, text3, interval_seconds, chats FROM mailings WHERE id=?",
                     (mailing_id,)
                 )
                 data = await cursor.fetchone()
+
+            if not data:
+                await asyncio.sleep(10)
+                continue
 
             texts = [t.strip() for t in [data[0], data[1], data[2]] if t and t.strip()]
             if not texts:
@@ -495,8 +548,15 @@ async def mailing_worker(mailing_id):
 
             # === ОСНОВНОЙ ЦИКЛ ОТПРАВКИ ===
             for raw_chat_id in chats:
-                # Проверка отмены задачи
-                if mailing_id not in active_mailings or active_mailings[mailing_id].done():
+                # Проверяем что задача не отменена
+                await asyncio.sleep(0)  # даём event loop шанс поймать CancelledError
+
+                # Проверяем статус в БД каждые N чатов
+                async with aiosqlite.connect(DATABASE) as db:
+                    cursor = await db.execute("SELECT status FROM mailings WHERE id=?", (mailing_id,))
+                    row = await cursor.fetchone()
+                if not row or row[0] != "active":
+                    print(f"🛑 Mailing {mailing_id} stopped mid-loop")
                     return
 
                 try:
@@ -513,24 +573,28 @@ async def mailing_worker(mailing_id):
                     print(f"✅ SENT #{sent} -> {chat_id} (mailing {mailing_id})")
 
                 except FloodWait as e:
+                    print(f"⏳ FloodWait {e.value}s for mailing {mailing_id}")
                     await asyncio.sleep(e.value)
                 except (AuthKeyUnregistered, ConnectionError) as e:
                     print(f"❌ AUTH/CONNECTION ERROR: {e}")
-                    if client:
-                        try: await client.stop()
-                        except: pass
+                    try:
+                        if client:
+                            await client.stop()
+                    except:
+                        pass
                     client = None
-                    break
+                    break  # выходим из for, while переподключит
                 except Exception as e:
                     print(f"❌ Send error to {chat_id}: {e}")
                     await asyncio.sleep(3)
 
                 await asyncio.sleep(interval)
 
-            await asyncio.sleep(5)  # пауза между полными кругами
+            # Пауза между полными кругами по всем чатам
+            await asyncio.sleep(5)
 
     except asyncio.CancelledError:
-        print(f"🛑 Mailing {mailing_id} was cancelled")
+        print(f"🛑 Mailing {mailing_id} cancelled")
     except Exception as e:
         import traceback
         print(f"💥 Mailing worker crashed {mailing_id}: {e}")
@@ -541,6 +605,7 @@ async def mailing_worker(mailing_id):
                 await client.stop()
             except:
                 pass
+        # Сбрасываем статус если воркер упал сам
         try:
             async with aiosqlite.connect(DATABASE) as db:
                 await db.execute(
@@ -554,25 +619,25 @@ async def mailing_worker(mailing_id):
             del active_mailings[mailing_id]
         print(f"🏁 Mailing worker finished {mailing_id}")
 
-# ========================= Остальные функции =========================
+# ========================= MAILING CRUD =========================
 async def create_mailing(request):
     try:
         data = await request.json()
         user = await get_user(data["username"])
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute(""" 
+            await db.execute("""
                 INSERT INTO mailings (
-                    owner_id, account_id, name, text1, text2, text3, 
+                    owner_id, account_id, name, text1, text2, text3,
                     interval_seconds, chats, status
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stopped')
             """, (
-                user[0], 
-                data["account_id"], 
-                data["name"], 
-                data.get("text1",""), 
-                data.get("text2",""), 
-                data.get("text3",""), 
-                int(data.get("interval", 60)), 
+                user[0],
+                data["account_id"],
+                data["name"],
+                data.get("text1", ""),
+                data.get("text2", ""),
+                data.get("text3", ""),
+                int(data.get("interval", 60)),
                 json.dumps(data.get("chats", []))
             ))
             await db.commit()
@@ -586,10 +651,10 @@ async def list_mailings(request):
         data = await request.json()
         user = await get_user(data["username"])
         async with aiosqlite.connect(DATABASE) as db:
-            cursor = await db.execute(""" 
-                SELECT m.*, a.phone 
-                FROM mailings m 
-                JOIN accounts a ON m.account_id = a.id 
+            cursor = await db.execute("""
+                SELECT m.*, a.phone
+                FROM mailings m
+                JOIN accounts a ON m.account_id = a.id
                 WHERE m.owner_id=?
             """, (user[0],))
             rows = await cursor.fetchall()
@@ -632,17 +697,17 @@ async def update_mailing(request):
         data = await request.json()
         m_id = data["id"]
         async with aiosqlite.connect(DATABASE) as db:
-            await db.execute(""" 
-                UPDATE mailings 
-                SET name=?, text1=?, text2=?, text3=?, interval_seconds=?, chats=? 
+            await db.execute("""
+                UPDATE mailings
+                SET name=?, text1=?, text2=?, text3=?, interval_seconds=?, chats=?
                 WHERE id=?
             """, (
                 data["name"],
-                data.get("text1",""),
-                data.get("text2",""),
-                data.get("text3",""),
-                int(data.get("interval",60)),
-                json.dumps(data.get("chats",[])),
+                data.get("text1", ""),
+                data.get("text2", ""),
+                data.get("text3", ""),
+                int(data.get("interval", 60)),
+                json.dumps(data.get("chats", [])),
                 m_id
             ))
             await db.commit()
@@ -661,7 +726,7 @@ async def toggle_mailing(request):
             await db.commit()
 
         if status == "active":
-            # Удаляем старую задачу, если она мертвая
+            # Убираем мертвую задачу если есть
             if m_id in active_mailings and active_mailings[m_id].done():
                 del active_mailings[m_id]
 
@@ -675,10 +740,11 @@ async def toggle_mailing(request):
                 task = active_mailings[m_id]
                 task.cancel()
                 try:
-                    await asyncio.wait_for(task, timeout=5)
+                    await asyncio.wait_for(asyncio.shield(task), timeout=5)
                 except:
                     pass
-                del active_mailings[m_id]
+                if m_id in active_mailings:
+                    del active_mailings[m_id]
                 print(f"🛑 MAILING STOPPED {m_id}")
 
         return json_response(True)
@@ -714,8 +780,8 @@ async def create_app():
     app.router.add_get("/", lambda r: web.FileResponse("index.html"))
 
     cors = aiohttp_cors.setup(app, defaults={"*": aiohttp_cors.ResourceOptions(
-        allow_headers="*", 
-        allow_methods="*", 
+        allow_headers="*",
+        allow_methods="*",
         allow_credentials=True
     )})
     for route in list(app.router.routes()):
