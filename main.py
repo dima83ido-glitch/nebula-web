@@ -535,13 +535,26 @@ async def mailing_worker(mailing_id):
     except asyncio.CancelledError:
         print(f"🛑 Mailing {mailing_id} was cancelled")
     except Exception as e:
+        import traceback
         print(f"💥 Mailing worker crashed {mailing_id}: {e}")
+        traceback.print_exc()
     finally:
         if client:
             try:
                 await client.stop()
             except:
                 pass
+        try:
+            async with aiosqlite.connect(DATABASE) as db:
+                await db.execute(
+                    "UPDATE mailings SET status='stopped' WHERE id=? AND status='active'",
+                    (mailing_id,)
+                )
+                await db.commit()
+        except:
+            pass
+        if mailing_id in active_mailings:
+            del active_mailings[mailing_id]
         print(f"🏁 Mailing worker finished {mailing_id}")
 
 # ========================= Остальные функции =========================
