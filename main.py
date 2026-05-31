@@ -321,18 +321,16 @@ async def verify_password(request):
         me = await client.get_me()
         session_string = await client.export_session_string()
         await save_account(auth, me.username, session_string)
-        await client.stop()
-        del pending_auths[auth_id]
+        try:
+            await client.stop()
+        except:
+            pass
+        if auth_id in pending_auths:
+            del pending_auths[auth_id]
         print(f"✅ 2FA успешно пройден для {auth['phone']}")
         return json_response(True, "Аккаунт успешно добавлен")
     except Exception as e:
         print("❌ verify_password ERROR:", str(e))
-        try:
-            auth = pending_auths.get(data.get("auth_id", ""))
-            if auth:
-                await auth["client"].disconnect()
-        except:
-            pass
         return json_response(False, f"Ошибка 2FA: {str(e)}")
 
 async def save_account(auth, tg_username, session_string=None):
