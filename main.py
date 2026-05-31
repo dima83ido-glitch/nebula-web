@@ -4,6 +4,7 @@ import json
 import uuid
 import bcrypt
 import asyncpg
+import aiohttp
 from aiohttp import web
 import aiohttp_cors
 from pyrogram import Client
@@ -13,8 +14,8 @@ from pyrogram.errors import SessionPasswordNeeded, FloodWait, AuthKeyUnregistere
 PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
 MAX_CHATS = 20000
+RENDER_URL = os.environ.get("RENDER_URL", "https://nebula-web-nwdf.onrender.com")
 
-# Параметры БД через отдельные переменные (решает проблему со спецсимволами в пароле)
 DB_HOST = os.environ.get("DB_HOST", "aws-1-eu-north-1.pooler.supabase.com")
 DB_PORT = int(os.environ.get("DB_PORT", 5432))
 DB_NAME = os.environ.get("DB_NAME", "postgres")
@@ -91,6 +92,19 @@ async def create_admin():
                 "admin", hashed, "admin"
             )
             print("✅ Admin created")
+
+# ========================= KEEP ALIVE =========================
+async def keep_alive_task():
+    """Пингует сам себя каждые 20 секунд чтобы Render не засыпал"""
+    await asyncio.sleep(10)  # ждём старт сервера
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(RENDER_URL, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    print(f"🏓 Keep-alive ping: {resp.status}")
+        except Exception as e:
+            print(f"⚠️ Keep-alive error: {e}")
+        await asyncio.sleep(20)
 
 # ========================= HELPERS =========================
 def json_response(status=True, message="", **kwargs):
@@ -725,6 +739,7 @@ async def create_app():
         cors.add(route)
 
     app.on_startup.append(start_background_tasks)
+    app.on_startup.append(lambda app: asyncio.ensure_future(keep_alive_task()))
     return app
 
 async def start_background_tasks(app):
