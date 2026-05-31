@@ -240,7 +240,7 @@ async def send_code(request):
         print(f"🔄 Отправка кода на номер: {phone}")
 
         client = Client(
-            name="auth_temp",
+            name=session_name,
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy if proxy else None,
@@ -248,7 +248,7 @@ async def send_code(request):
             system_version="iOS 17.0",
             app_version="10.6.0",
             lang_code="ru",
-            in_memory=True,
+            in_memory=False,
             no_updates=True,
             workers=1,
             sleep_threshold=30
