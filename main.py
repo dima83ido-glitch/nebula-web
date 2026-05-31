@@ -14,6 +14,7 @@ PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
 MAX_CHATS = 20000
 
+# Параметры БД через отдельные переменные (решает проблему со спецсимволами в пароле)
 DB_HOST = os.environ.get("DB_HOST", "aws-1-eu-north-1.pooler.supabase.com")
 DB_PORT = int(os.environ.get("DB_PORT", 5432))
 DB_NAME = os.environ.get("DB_NAME", "postgres")
