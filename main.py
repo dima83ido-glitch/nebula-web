@@ -14,7 +14,6 @@ PORT = int(os.environ.get("PORT", 8080))
 MAX_ACCOUNTS = 50
 MAX_CHATS = 20000
 
-# Параметры БД через отдельные переменные (решает проблему со спецсимволами в пароле)
 DB_HOST = os.environ.get("DB_HOST", "aws-1-eu-north-1.pooler.supabase.com")
 DB_PORT = int(os.environ.get("DB_PORT", 5432))
 DB_NAME = os.environ.get("DB_NAME", "postgres")
@@ -293,14 +292,15 @@ async def verify_code(request):
             me = await client.get_me()
             session_string = await client.export_session_string()
             await save_account(auth, me.username, session_string)
-            await client.disconnect()
+            # Используем stop() вместо disconnect() чтобы сессия осталась живой
+            await client.stop()
             del pending_auths[auth_id]
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
             return json_response(True, "Требуется 2FA пароль", need_password=True)
         except Exception as e:
             try:
-                await client.disconnect()
+                await client.stop()
             except:
                 pass
             return json_response(False, f"Ошибка: {str(e)}")
@@ -321,7 +321,8 @@ async def verify_password(request):
         me = await client.get_me()
         session_string = await client.export_session_string()
         await save_account(auth, me.username, session_string)
-        await client.disconnect()
+        # Используем stop() вместо disconnect() чтобы сессия осталась живой
+        await client.stop()
         del pending_auths[auth_id]
         print(f"✅ 2FA успешно пройден для {auth['phone']}")
         return json_response(True, "Аккаунт успешно добавлен")
@@ -330,7 +331,7 @@ async def verify_password(request):
         try:
             auth = pending_auths.get(data.get("auth_id", ""))
             if auth:
-                await auth["client"].disconnect()
+                await auth["client"].stop()
         except:
             pass
         return json_response(False, f"Ошибка 2FA: {str(e)}")
