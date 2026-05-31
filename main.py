@@ -96,7 +96,7 @@ async def create_admin():
 # ========================= KEEP ALIVE =========================
 async def keep_alive_task():
     """Пингует сам себя каждые 20 секунд чтобы Render не засыпал"""
-    await asyncio.sleep(10)  # ждём старт сервера
+    await asyncio.sleep(30)  # ждём старт сервера
     while True:
         try:
             async with aiohttp.ClientSession() as session:
