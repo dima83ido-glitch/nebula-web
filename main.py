@@ -240,7 +240,7 @@ async def send_code(request):
         print(f"🔄 Отправка кода на номер: {phone}")
 
         client = Client(
-            name=session_name,
+            name="auth_session",
             api_id=api_id,
             api_hash=api_hash,
             proxy=proxy if proxy else None,
@@ -248,7 +248,7 @@ async def send_code(request):
             system_version="iOS 17.0",
             app_version="10.6.0",
             lang_code="ru",
-            in_memory=False,
+            in_memory=True,
             no_updates=True,
             workers=1,
             sleep_threshold=30
@@ -320,13 +320,12 @@ async def verify_password(request):
         await client.check_password(password)
         me = await client.get_me()
         session_string = await client.export_session_string()
+        pending_auths.pop(auth_id, None)
         await save_account(auth, me.username, session_string)
         try:
             await client.stop()
         except:
             pass
-        if auth_id in pending_auths:
-            del pending_auths[auth_id]
         print(f"✅ 2FA успешно пройден для {auth['phone']}")
         return json_response(True, "Аккаунт успешно добавлен")
     except Exception as e:
