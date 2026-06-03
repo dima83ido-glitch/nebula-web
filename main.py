@@ -243,6 +243,7 @@ async def send_code(request):
             name="auth_session",
             api_id=api_id,
             api_hash=api_hash,
+            phone_number=phone,
             proxy=proxy if proxy else None,
             device_model="iPhone 15 Pro",
             system_version="iOS 17.0",
@@ -291,10 +292,14 @@ async def verify_code(request):
         try:
             await client.sign_in(auth["phone"], auth["phone_code_hash"], code)
             me = await client.get_me()
+            await asyncio.sleep(2)
             session_string = await client.export_session_string()
+            pending_auths.pop(auth_id, None)
             await save_account(auth, me.username, session_string)
-            await client.stop()
-            del pending_auths[auth_id]
+            try:
+                await client.stop()
+            except:
+                pass
             return json_response(True, "Аккаунт успешно добавлен")
         except SessionPasswordNeeded:
             return json_response(True, "Требуется 2FA пароль", need_password=True)
@@ -319,6 +324,7 @@ async def verify_password(request):
         print(f"🔐 Проверка 2FA пароля для {auth['phone']}")
         await client.check_password(password)
         me = await client.get_me()
+        await asyncio.sleep(2)
         session_string = await client.export_session_string()
         pending_auths.pop(auth_id, None)
         await save_account(auth, me.username, session_string)
@@ -331,7 +337,7 @@ async def verify_password(request):
     except Exception as e:
         print("❌ verify_password ERROR:", str(e))
         return json_response(False, f"Ошибка 2FA: {str(e)}")
-
+    
 async def save_account(auth, tg_username, session_string=None):
     try:
         user = await get_user(auth["username"])
