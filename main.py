@@ -243,7 +243,6 @@ async def send_code(request):
             name="auth_session",
             api_id=api_id,
             api_hash=api_hash,
-            phone_number=phone,
             proxy=proxy if proxy else None,
             device_model="iPhone 15 Pro",
             system_version="iOS 17.0",
@@ -256,6 +255,7 @@ async def send_code(request):
         )
         await client.connect()
         sent_code = await client.send_code(phone)
+        await client.storage.save()
 
         auth_id = str(uuid.uuid4())
         pending_auths[auth_id] = {
